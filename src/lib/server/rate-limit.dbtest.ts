@@ -32,11 +32,16 @@ describe('rate limits', () => {
 		assert.notEqual(ipSubject('x'), userSubject('x'));
 	});
 
-	it("deletes the subject's stale windows when a new window starts", async () => {
+	it('deletes every stale window in the bucket when a new window starts, not just this subject\'s', async () => {
 		const subject = userSubject('u-stale');
+		const otherSubject = userSubject('u-stale-other');
 		await query(
 			"insert into rate_limits (bucket, subject, window_start, count) values ($1, $2, now() - interval '3 hours', 9)",
 			[policy.bucket, subject]
+		);
+		await query(
+			"insert into rate_limits (bucket, subject, window_start, count) values ($1, $2, now() - interval '3 hours', 9)",
+			[policy.bucket, otherSubject]
 		);
 		await consume(policy, subject);
 		const rows = await query<{ count: number }>(
@@ -44,5 +49,10 @@ describe('rate limits', () => {
 			[policy.bucket, subject]
 		);
 		assert.deepEqual(rows.map((r) => r.count), [1]);
+		const otherRows = await query('select 1 from rate_limits where bucket = $1 and subject = $2', [
+			policy.bucket,
+			otherSubject
+		]);
+		assert.deepEqual(otherRows, []);
 	});
 });

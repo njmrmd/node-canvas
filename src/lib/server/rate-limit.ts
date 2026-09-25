@@ -69,13 +69,11 @@ export async function consume(policy: RateLimitPolicy, subject: string): Promise
 
 	if (!row) return { allowed: false, limit: policy.limit, remaining: 0, resetAt };
 
-	// First hit of a new window: this subject's older windows are dead weight.
+	// First hit of a new window: every stale window in the bucket is dead
+	// weight, not just this subject's — one subject's rollover is as good a
+	// time as any to sweep the rest.
 	if (row.count === 1) {
-		await query('delete from rate_limits where bucket = $1 and subject = $2 and window_start < $3', [
-			policy.bucket,
-			subject,
-			windowStart
-		]);
+		await query('delete from rate_limits where bucket = $1 and window_start < $2', [policy.bucket, windowStart]);
 	}
 
 	return { allowed: true, limit: policy.limit, remaining: Math.max(0, policy.limit - row.count), resetAt };
