@@ -21,7 +21,7 @@
 		required?: boolean;
 	} = $props();
 
-	const id = `field-${name}`;
+	const id = $derived(`field-${name}`);
 	const describedBy = $derived(
 		[error && `${id}-error`, hint && `${id}-hint`, note && `${id}-note`].filter(Boolean).join(' ') || undefined
 	);
