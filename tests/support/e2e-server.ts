@@ -15,6 +15,18 @@ const APP_PORT = 4173;
 const FAKE_ANTHROPIC_PORT = 4011;
 const PG_PORT = 55433;
 
+/**
+ * embedded-postgres's stop() can hang forever instead of rejecting (see
+ * scripts/test-db.mjs for the full explanation). Race a timeout so cleanup
+ * always runs even when stop() can't tell us it's done.
+ */
+async function stopServer(instance: EmbeddedPostgres): Promise<void> {
+	await Promise.race([
+		instance.stop().catch(() => {}),
+		new Promise((resolve) => setTimeout(resolve, 5000))
+	]);
+}
+
 let admin = process.env.TEST_DATABASE_URL;
 let server: EmbeddedPostgres | undefined;
 let dataDir: string | undefined;
@@ -29,8 +41,17 @@ if (!admin) {
 		persistent: false,
 		onLog: () => {}
 	});
-	await server.initialise();
-	await server.start();
+	try {
+		await server.initialise();
+		await server.start();
+	} catch (error) {
+		// The server may or may not have come up far enough to need stopping;
+		// either way, don't leave it running or the temp dir behind.
+		await stopServer(server);
+		await rm(dataDir, { recursive: true, force: true });
+		console.error('[e2e-server] failed to start embedded Postgres:', error instanceof Error ? error.name : error);
+		process.exit(1);
+	}
 	admin = `postgres://postgres:postgres@localhost:${PG_PORT}/postgres?sslmode=disable`;
 }
 
@@ -59,7 +80,7 @@ async function shutdown(code = 0) {
 	preview.kill('SIGTERM');
 	await fake.close();
 	if (server) {
-		await server.stop();
+		await stopServer(server);
 		await rm(dataDir!, { recursive: true, force: true });
 	}
 	process.exit(code);
