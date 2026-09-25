@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { mock } from "node:test";
+import { error, isHttpError, isRedirect, redirect } from "@sveltejs/kit";
 import { ApiError, DEFAULT_MAX_BODY_BYTES, errorResponse, readJsonBody, withRoute } from "./api-error";
 import type { RequestEvent } from "@sveltejs/kit";
 
@@ -92,5 +94,40 @@ describe("withRoute", () => {
     const text = await res.text();
     assert.doesNotMatch(text, /postgres|secret/);
     assert.match(text, /internal_error/);
+  });
+
+  it("logs error name and code but never the message", async () => {
+    const errorMock = mock.method(console, 'error', () => {});
+    try {
+      const handler = withRoute("test-route", async () => { throw new Error("connection to postgres://secret failed"); });
+      await handler(event);
+      assert.equal(errorMock.mock.callCount(), 1);
+      const args = errorMock.mock.calls[0].arguments.join(' ');
+      assert.doesNotMatch(args, /postgres|secret/);
+      assert.match(args, /test-route/);
+      assert.match(args, /Error/);
+    } finally {
+      errorMock.mock.restore();
+    }
+  });
+
+  it("rethrows redirect() control flow", async () => {
+    const handler = withRoute("t", async () => { throw redirect(303, '/x'); });
+    try {
+      await handler(event);
+      assert.fail("expected redirect to be rethrown");
+    } catch (err) {
+      assert.ok(isRedirect(err));
+    }
+  });
+
+  it("rethrows error() control flow", async () => {
+    const handler = withRoute("t", async () => { throw error(404, 'nope'); });
+    try {
+      await handler(event);
+      assert.fail("expected error() to be rethrown");
+    } catch (err) {
+      assert.ok(isHttpError(err));
+    }
   });
 });

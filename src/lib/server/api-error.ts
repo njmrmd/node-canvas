@@ -89,7 +89,9 @@ export function withRoute(name: string, handler: RequestHandler): RequestHandler
 		} catch (error) {
 			if (isRedirect(error) || isHttpError(error)) throw error;
 			if (error instanceof ApiError) return errorResponse(error);
-			console.error(`[${name}] unhandled error:`, error instanceof Error ? error.message : 'unknown');
+			const label = error instanceof Error ? error.name : 'non-Error throw';
+			const code = typeof (error as Record<string, unknown>).code === 'string' ? (error as Record<string, unknown>).code : undefined;
+			console.error(`[${name}] unhandled error: ${label}${code ? ` code=${code}` : ''}`);
 			return errorResponse(
 				new ApiError('internal_error', 'Something went wrong on our side. Please try again.')
 			);
