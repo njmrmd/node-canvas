@@ -4,11 +4,11 @@ import { after, before, describe, it } from 'node:test';
 import { freshDatabase } from '../../../tests/support/test-db';
 import { query, queryOne } from './db';
 
-let db: Awaited<ReturnType<typeof freshDatabase>>;
+let db: Awaited<ReturnType<typeof freshDatabase>> | undefined;
 before(async () => {
 	db = await freshDatabase();
 });
-after(() => db.drop());
+after(() => db?.drop());
 
 async function user(email: string): Promise<string> {
 	const row = await queryOne<{ id: string }>(

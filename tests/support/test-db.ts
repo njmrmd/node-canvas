@@ -15,7 +15,12 @@ export async function freshDatabase(): Promise<{ drop: () => Promise<void> }> {
 	await adminQuery(admin, `create database ${name}`);
 	const url = new URL(admin);
 	url.pathname = `/${name}`;
-	await migrate(url.toString(), { log: () => {} });
+	try {
+		await migrate(url.toString(), { log: () => {} });
+	} catch (error) {
+		await adminQuery(admin, `drop database ${name} with (force)`);
+		throw error;
+	}
 	process.env.DATABASE_URL = url.toString();
 
 	return {
