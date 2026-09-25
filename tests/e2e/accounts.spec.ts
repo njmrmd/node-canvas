@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { GOOD_KEY } from '../support/fake-anthropic';
 
 // The real sign-up limit (5 per IP per hour) applies here too, and every test
 // runs from 127.0.0.1 against one fresh database. Budget: this file makes at
@@ -66,4 +67,45 @@ test('a cross-site form post is rejected', async ({ request }) => {
 		headers: { origin: 'https://evil.example' }
 	});
 	expect(res.status()).toBe(403);
+});
+
+test('the whole account journey: key, sign out, sign in, delete', async ({ page }) => {
+	const address = email('journey');
+	await signUp(page, address);
+	await expect(page).toHaveURL(/\/keys$/);
+	await expect(page.getByText('No key connected yet.')).toBeVisible();
+	await expect(page.getByText(address)).toBeVisible();
+
+	// A key Anthropic rejects: explained on the screen where it was pasted.
+	await page.getByLabel('Anthropic API key').fill('sk-ant-api03-wrong');
+	await page.getByRole('button', { name: 'Verify and save key' }).click();
+	await expect(page.getByText('Anthropic rejected that key')).toBeVisible();
+
+	// A good key: stored, shown only as its last four characters.
+	await page.getByLabel('Anthropic API key').fill(GOOD_KEY);
+	await page.getByRole('button', { name: 'Verify and save key' }).click();
+	await expect(page.getByText('Key verified and saved')).toBeVisible();
+	await expect(page.getByText(`Connected — key ending ${GOOD_KEY.slice(-4)}`)).toBeVisible();
+	await expect(page.locator('body')).not.toContainText(GOOD_KEY.slice(0, 20));
+
+	await page.getByRole('button', { name: 'Remove key' }).click();
+	await expect(page.getByText('No key connected yet.')).toBeVisible();
+
+	await page.getByRole('button', { name: 'Sign out' }).click();
+	await expect(page).toHaveURL(/\/$/);
+	await page.goto('/keys');
+	await expect(page).toHaveURL(/\/sign-in\?next=%2Fkeys$/);
+
+	await signIn(page, address);
+	await expect(page).toHaveURL(/\/keys$/);
+
+	await page.getByRole('button', { name: 'Delete account' }).click();
+	await expect(page.getByText('Tick the box to confirm.')).toBeVisible();
+	await page.getByLabel('I understand this deletes everything').check();
+	await page.getByRole('button', { name: 'Delete account' }).click();
+	await expect(page).toHaveURL(/\/$/);
+
+	await page.goto('/sign-in');
+	await signIn(page, address);
+	await expect(page.getByText('That email and password do not match.')).toBeVisible();
 });
