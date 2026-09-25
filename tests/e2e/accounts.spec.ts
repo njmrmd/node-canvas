@@ -3,7 +3,7 @@ import { GOOD_KEY } from '../support/fake-anthropic';
 
 // The real sign-up limit (5 per IP per hour) applies here too, and every test
 // runs from 127.0.0.1 against one fresh database. Budget: this file makes at
-// most 4 counted sign-up attempts. Reuse accounts rather than adding sign-ups.
+// most 5 counted sign-up attempts. Reuse accounts rather than adding sign-ups.
 const email = (tag: string) => `e2e-${tag}-${Date.now()}@example.test`;
 const PASSWORD = 'correct horse battery staple';
 
@@ -67,6 +67,25 @@ test('a cross-site form post is rejected', async ({ request }) => {
 		headers: { origin: 'https://evil.example' }
 	});
 	expect(res.status()).toBe(403);
+});
+
+test('a stale-session form action redirects to sign-in instead of erroring', async ({ page, context }) => {
+	const address = email('stale-session');
+	await signUp(page, address);
+	await expect(page).toHaveURL(/\/keys$/);
+	await context.clearCookies();
+
+	const pageErrors: Error[] = [];
+	page.on('pageerror', (error) => pageErrors.push(error));
+
+	await page.getByLabel('Anthropic API key').fill(GOOD_KEY);
+	await page.getByRole('button', { name: 'Verify and save key' }).click();
+
+	// The action posts to /keys?/connect, so the preserved "next" carries that
+	// suffix too; what matters is that it lands back on the keys screen and
+	// never tries to deserialise the sign-in HTML as a form-action result.
+	await expect(page).toHaveURL(/\/sign-in\?next=%2Fkeys/);
+	expect(pageErrors).toEqual([]);
 });
 
 test('the whole account journey: key, sign out, sign in, delete', async ({ page }) => {

@@ -1,4 +1,4 @@
-import { type Handle, type HandleServerError } from '@sveltejs/kit';
+import { redirect, type Handle, type HandleServerError } from '@sveltejs/kit';
 import { signInHref } from '$lib/auth/next-path';
 import { getUserBySessionToken } from '$lib/server/auth/session';
 import { SESSION_COOKIE } from '$lib/server/auth/session-cookie';
@@ -9,13 +9,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.user = token ? await getUserBySessionToken(token) : null;
 
 	if (!event.locals.user && isProtected(event.url.pathname)) {
-		return new Response(null, {
-			status: 303,
-			headers: {
-				location: signInHref(event.url.pathname + event.url.search),
-				...SECURITY_HEADERS
-			}
-		});
+		const location = signInHref(event.url.pathname + event.url.search);
+		// A `use:enhance` form action fetch follows a raw 303 and tries to
+		// deserialise the resulting HTML as an action result, so a non-GET
+		// request needs SvelteKit's own redirect() (which enhance recognises)
+		// rather than a Response it will just follow into a parse failure.
+		if (event.request.method !== 'GET') redirect(303, location);
+		return new Response(null, { status: 303, headers: { location, ...SECURITY_HEADERS } });
 	}
 
 	const response = await resolve(event);
