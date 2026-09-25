@@ -23,11 +23,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
-/** Logs the route and message only; the page gets a generic sentence. */
+/** Logs the route, error name and code only; the page gets a generic sentence. */
 export const handleError: HandleServerError = ({ error, event, status }) => {
 	if (status !== 404) {
 		const label = error instanceof Error ? error.name : 'non-Error throw';
-		const code = typeof (error as Record<string, unknown>).code === 'string' ? (error as Record<string, unknown>).code : undefined;
+		const code =
+			error !== null && typeof error === 'object' && typeof (error as Record<string, unknown>).code === 'string'
+				? (error as Record<string, unknown>).code
+				: undefined;
 		console.error(
 			`[${event.route.id ?? 'unknown route'}] unhandled error: ${label}${code ? ` code=${code}` : ''}`
 		);

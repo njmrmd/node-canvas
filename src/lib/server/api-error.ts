@@ -79,8 +79,9 @@ export function errorResponse(error: ApiError): Response {
 
 /**
  * The "logging without leakage" boundary for JSON routes: an ApiError becomes
- * its envelope; anything else is logged by name/message and returned as a
- * generic internal_error. SvelteKit redirects and HTTP errors pass through.
+ * its envelope; anything else is logged by name and code only (never message)
+ * and returned as a generic internal_error. SvelteKit redirects and HTTP
+ * errors pass through.
  */
 export function withRoute(name: string, handler: RequestHandler): RequestHandler {
 	return async (event) => {
@@ -90,7 +91,10 @@ export function withRoute(name: string, handler: RequestHandler): RequestHandler
 			if (isRedirect(error) || isHttpError(error)) throw error;
 			if (error instanceof ApiError) return errorResponse(error);
 			const label = error instanceof Error ? error.name : 'non-Error throw';
-			const code = typeof (error as Record<string, unknown>).code === 'string' ? (error as Record<string, unknown>).code : undefined;
+			const code =
+				error !== null && typeof error === 'object' && typeof (error as Record<string, unknown>).code === 'string'
+					? (error as Record<string, unknown>).code
+					: undefined;
 			console.error(`[${name}] unhandled error: ${label}${code ? ` code=${code}` : ''}`);
 			return errorResponse(
 				new ApiError('internal_error', 'Something went wrong on our side. Please try again.')

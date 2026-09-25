@@ -111,6 +111,13 @@ describe("withRoute", () => {
     }
   });
 
+  it("turns a thrown null into the internal_error envelope instead of crashing", async () => {
+    const handler = withRoute("t", async () => { throw null; });
+    const res = await handler(event);
+    assert.equal(res.status, 500);
+    assert.match(await res.text(), /internal_error/);
+  });
+
   it("rethrows redirect() control flow", async () => {
     const handler = withRoute("t", async () => { throw redirect(303, '/x'); });
     try {
