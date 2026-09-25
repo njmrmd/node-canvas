@@ -57,6 +57,8 @@ test('responses carry the security headers and a CSP', async ({ request }) => {
 	const csp = res.headers()['content-security-policy'] ?? '';
 	expect(csp).toContain("frame-ancestors 'none'");
 	expect(csp).toMatch(/script-src 'self' ('nonce-|'sha256-)/);
+	const scriptSrc = csp.split(';').find((directive) => directive.trim().startsWith('script-src')) ?? '';
+	expect(scriptSrc).not.toContain('unsafe-inline');
 	expect(res.headers()['x-content-type-options']).toBe('nosniff');
 	expect(res.headers()['x-frame-options']).toBe('DENY');
 });
