@@ -2,8 +2,8 @@ import { fail, redirect } from '@sveltejs/kit';
 import { checkCredentials, normaliseEmail } from '$lib/auth/credentials';
 import { resolveNextPath } from '$lib/auth/next-path';
 import { AUTH_MESSAGES } from '$lib/copy/auth';
-import { createSession, deleteExpiredSessions } from '$lib/server/auth/session';
-import { setSessionCookie } from '$lib/server/auth/session-cookie';
+import { createSession, deleteExpiredSessions, deleteSession } from '$lib/server/auth/session';
+import { SESSION_COOKIE, setSessionCookie } from '$lib/server/auth/session-cookie';
 import { dummyPasswordHash, verifyPassword } from '$lib/server/crypto/password';
 import { queryOne } from '$lib/server/db';
 import { rateLimitMessage, str } from '$lib/server/form';
@@ -34,6 +34,12 @@ export const actions: Actions = {
 		// Always run scrypt, so response time does not reveal whether the email exists.
 		const verified = await verifyPassword(password, row?.password_hash ?? (await dummyPasswordHash()));
 		if (!row || !verified) return fail(401, { email, message: AUTH_MESSAGES.badCredentials });
+
+		// A stale session cookie from before this sign-in must not stay valid
+		// once a new one is issued — otherwise the old token keeps working
+		// indefinitely, e.g. on a shared or previously compromised device.
+		const staleToken = cookies.get(SESSION_COOKIE);
+		if (staleToken) await deleteSession(staleToken);
 
 		await deleteExpiredSessions();
 		const session = await createSession(row.id);
