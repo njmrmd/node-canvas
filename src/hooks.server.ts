@@ -1,4 +1,4 @@
-import { redirect, type Handle, type HandleServerError } from '@sveltejs/kit';
+import { type Handle, type HandleServerError } from '@sveltejs/kit';
 import { signInHref } from '$lib/auth/next-path';
 import { getUserBySessionToken } from '$lib/server/auth/session';
 import { SESSION_COOKIE } from '$lib/server/auth/session-cookie';
@@ -9,7 +9,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.user = token ? await getUserBySessionToken(token) : null;
 
 	if (!event.locals.user && isProtected(event.url.pathname)) {
-		redirect(303, signInHref(event.url.pathname + event.url.search));
+		return new Response(null, {
+			status: 303,
+			headers: {
+				location: signInHref(event.url.pathname + event.url.search),
+				...SECURITY_HEADERS
+			}
+		});
 	}
 
 	const response = await resolve(event);
