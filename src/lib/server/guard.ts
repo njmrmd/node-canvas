@@ -10,6 +10,6 @@ export const SECURITY_HEADERS: Record<string, string> = {
 	'X-Content-Type-Options': 'nosniff',
 	'X-Frame-Options': 'DENY',
 	'Referrer-Policy': 'strict-origin-when-cross-origin',
-	'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
-	'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()'
+	'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
+	'Permissions-Policy': 'camera=(), microphone=(), geolocation=()'
 };
