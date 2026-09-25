@@ -2,10 +2,11 @@
  * The credential rules, in one place, usable from both sides of the wire.
  *
  * The server is the only thing that can *enforce* these; the browser copy
- * exists so that a typo never becomes a network request. `/api/auth/*` is rate
- * limited per IP because it is an unauthenticated surface, and before this
- * module existed every mistyped password spent a slot in that budget — a
- * stranger could lock themselves out of signing up by fumbling the form.
+ * exists so that a typo never becomes a network request. The sign-up and
+ * sign-in form actions rate limit per IP because they are an unauthenticated
+ * surface, and before this module existed every mistyped password spent a
+ * slot in that budget — a stranger could lock themselves out of signing up
+ * by fumbling the form.
  *
  * Both sides importing the same functions is the point: a client check that
  * disagrees with the server check is worse than no client check, because it

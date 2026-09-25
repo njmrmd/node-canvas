@@ -30,7 +30,11 @@ const ALGORITHM = "aes-256-gcm";
 const IV_BYTES = 12; // 96-bit nonce, the size GCM is specified for.
 const KEY_BYTES = 32;
 
-/** Bumped when the server key rotates; stored alongside each row. */
+/**
+ * Not stored anywhere — there is exactly one KEY_VAULT_ENCRYPTION_KEY per
+ * deployment. Rotating it invalidates every key currently sealed under the
+ * old one; those users see no_key_configured and reconnect their key.
+ */
 export const CURRENT_KEY_VERSION = 1;
 
 function encryptionKey(): Buffer {
