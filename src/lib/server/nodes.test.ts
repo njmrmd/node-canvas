@@ -37,6 +37,28 @@ describe('parseSaveBody', () => {
 		assert.equal(parseSaveBody({ upserts: [wire({ response: 'x'.repeat(390_000) })] }).upserts.length, 1);
 	});
 
+	it('sanitises NUL and lone surrogates in every text field', () => {
+		const dirty = 'a\u0000b\uD800c\uDFFFd😀';
+		const clean = 'a\uFFFDb\uFFFDc\uFFFDd😀';
+		const [n] = parseSaveBody({
+			upserts: [
+				wire({
+					prompt: dirty,
+					response: dirty,
+					thinking: dirty,
+					model: dirty,
+					status: 'error',
+					error: { code: 'internal_error', message: dirty }
+				})
+			]
+		}).upserts;
+		assert.equal(n.prompt, clean);
+		assert.equal(n.response, clean);
+		assert.equal(n.thinking, clean);
+		assert.equal(n.model, clean);
+		assert.equal(n.error?.message, clean);
+	});
+
 	it('recognises UUIDs', () => {
 		assert.equal(isUuid(randomUUID()), true);
 		assert.equal(isUuid('not-a-uuid'), false);

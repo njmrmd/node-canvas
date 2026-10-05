@@ -23,6 +23,12 @@ function bad(message: string): never {
 const num = (v: unknown, min: number, max: number) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
 const text = (v: unknown, max: number) => typeof v === 'string' && v.length <= max;
 
+/**
+ * Postgres text and jsonb refuse U+0000 and unpaired surrogates, and the jsonb cast fails the whole
+ * batch on one bad character. Both become U+FFFD, the same length, so the caps above still hold.
+ */
+export const sanitize = (s: string) => s.replaceAll('\u0000', '\uFFFD').toWellFormed();
+
 function parseNode(raw: unknown, i: number): NodeWire {
 	if (typeof raw !== 'object' || raw === null) bad(`Node ${i} is malformed.`);
 	const n = raw as Record<string, unknown>;
@@ -46,16 +52,17 @@ function parseNode(raw: unknown, i: number): NodeWire {
 	for (const k of ['width', 'height'] as const) if (n[k] !== null && !num(n[k], 1, 10_000)) bad(`Node ${i} has a malformed size.`);
 	if (typeof n.collapsed !== 'boolean' || typeof n.bodyCollapsed !== 'boolean') bad(`Node ${i} has malformed flags.`);
 	if (!num(n.createdAt, 0, 8.64e15) || !num(n.updatedAt, 0, 8.64e15)) bad(`Node ${i} has malformed timestamps.`);
+	const error = n.error as NodeWire['error'];
 	return {
 		id: n.id as string,
 		parentId: n.parentId as string | null,
-		prompt: n.prompt as string,
-		response: n.response as string,
-		thinking: n.thinking as string,
+		prompt: sanitize(n.prompt as string),
+		response: sanitize(n.response as string),
+		thinking: sanitize(n.thinking as string),
 		status: n.status as NodeWire['status'],
-		error: n.error as NodeWire['error'],
+		error: error && { code: error.code, message: sanitize(error.message) },
 		usage: n.usage as NodeWire['usage'],
-		model: n.model as string | null,
+		model: n.model === null ? null : sanitize(n.model as string),
 		x: n.x as number,
 		y: n.y as number,
 		positionMode: n.positionMode as NodeWire['positionMode'],

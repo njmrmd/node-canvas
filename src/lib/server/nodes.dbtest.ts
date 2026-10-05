@@ -5,7 +5,7 @@ import { freshDatabase } from '../../../tests/support/test-db';
 import { ApiError } from './api-error';
 import { query, queryOne } from './db';
 import { wire } from '../../../tests/support/wire';
-import { deleteNode, loadCanvas, saveNodes } from './nodes';
+import { deleteNode, loadCanvas, parseSaveBody, saveNodes } from './nodes';
 
 let db: Awaited<ReturnType<typeof freshDatabase>> | undefined;
 let a: string;
@@ -63,6 +63,17 @@ describe('saveNodes / loadCanvas', () => {
 		assert.equal((await loadCanvas(a)).view?.targetNodeId, null);
 		await saveNodes(a, [], { viewport: { x: 0, y: 0, zoom: 1 }, targetNodeId: randomUUID() });
 		assert.equal((await loadCanvas(a)).view?.targetNodeId, null);
+	});
+
+	it('saves a node whose text has a NUL and a lone surrogate', async () => {
+		const raw = wire({ prompt: 'nul\u0000here', response: 'lone\uD800here', thinking: 'ok\uDFFF' });
+		const { upserts } = parseSaveBody({ upserts: [raw] });
+		const { rejected } = await saveNodes(a, upserts, null);
+		assert.deepEqual(rejected, []);
+		const saved = (await loadCanvas(a)).nodes.find((n) => n.id === raw.id);
+		assert.equal(saved?.prompt, 'nul\uFFFDhere');
+		assert.equal(saved?.response, 'lone\uFFFDhere');
+		assert.equal(saved?.thinking, 'ok\uFFFD');
 	});
 
 	it('saves a 390k-character response', async () => {
