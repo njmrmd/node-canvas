@@ -147,6 +147,10 @@ test('a reply that did not finish says so in the composer instead of waiting for
 	await page.goto('/canvas');
 	const refused = await send(page, '[refuse] nope', { wait: false });
 	await expect(page.locator(`article[data-node-id="${refused}"]`)).toHaveAttribute('data-status', 'error');
+	await expect(page.locator(`article[data-node-id="${refused}"] button[aria-label="Branch"]`)).toHaveAttribute(
+		'title',
+		"This reply didn't finish. Branch from another card, or start a new conversation."
+	);
 	await expect(page.getByTestId('composer-target')).toHaveAttribute('data-target-id', refused);
 	await expect(page.getByLabel('Message')).toHaveAttribute(
 		'placeholder',

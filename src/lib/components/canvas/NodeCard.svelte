@@ -50,7 +50,9 @@
 				class="nodrag"
 				type="button"
 				aria-label="Branch"
-				title={canBranchFrom(node) ? undefined : copy('branch.disabled')}
+				title={canBranchFrom(node)
+					? undefined
+					: copy(node.status === 'error' || node.status === 'interrupted' ? 'branch.failed' : 'branch.disabled')}
 				disabled={!canBranchFrom(node)}
 				onclick={() => store.branch(id)}>{copy('node.action.branch')}</button
 			>
