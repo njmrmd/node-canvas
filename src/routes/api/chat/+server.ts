@@ -8,7 +8,8 @@ import { enforce, POLICIES, rateLimitHeaders, userSubject } from '$lib/server/ra
 import { MAX_BODY_BYTES } from '$lib/shared/chat-limits';
 import type { ChatStreamEvent } from '$lib/shared/chat-types';
 
-export const config: Config = { maxDuration: 300 };
+// max_tokens 64000 can outlast 300 s. Pro with Fluid compute allows 800.
+export const config: Config = { maxDuration: 800 };
 
 const frame = (event: ChatStreamEvent) => `data: ${JSON.stringify(event)}\n\n`;
 

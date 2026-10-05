@@ -37,7 +37,11 @@ export type StreamChatRequest = {
 };
 
 export type StreamChatResult = {
-  /** False when the caller aborted. Nothing failed; the user stopped it. */
+  /**
+   * False when the caller aborted (the user stopped it), or when the body
+   * ended without a terminal frame (cut off). Either way the reply is kept as
+   * far as it got and nothing is reported as an error.
+   */
   completed: boolean;
 };
 
@@ -125,18 +129,12 @@ export async function streamChat(
 
   if (signal?.aborted) return { completed: false };
 
-  // The body ended without a `done` or `error` frame. The route always sends
-  // one, so this is a dropped connection — surfaced as a terminal error
-  // rather than leaving the node spinning forever.
-  if (!sawTerminal) {
-    onEvent({
-      type: "error",
-      code: "internal_error",
-      message: "The response stopped unexpectedly. Please try again.",
-    });
-  }
-
-  return { completed: true };
+  // The body ended cleanly without a `done` or `error` frame. The route always
+  // sends one, so the function was cut off (its duration limit) or the
+  // connection closed. Report it as not completed, without an error: the card
+  // settles as "Stopped" with the partial reply kept, the same as a body that
+  // breaks mid-reply, instead of spinning forever or blaming the server.
+  return { completed: sawTerminal };
 }
 
 /**

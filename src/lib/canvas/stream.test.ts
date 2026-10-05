@@ -184,17 +184,16 @@ describe("streamChat", () => {
     assert.equal(events[1].type, "error");
   });
 
-  it("synthesises a terminal error when the connection drops", async () => {
-    const { events } = await collect(
+  it("reports a body that ends without a terminal frame as not completed, with no error", async () => {
+    // A function cut off at its duration limit closes the body cleanly. The
+    // card settles as "Stopped" with the partial text kept — the same contract
+    // as a body that breaks mid-reply — rather than showing a made-up error.
+    const { events, result } = await collect(
       sseResponse([frame({ type: "text", text: "half an ans" })]),
     );
 
-    assert.equal(events.length, 2);
-    assert.deepEqual(events[1], {
-      type: "error",
-      code: "internal_error",
-      message: "The response stopped unexpectedly. Please try again.",
-    });
+    assert.equal(result.completed, false);
+    assert.deepEqual(events, [{ type: "text", text: "half an ans" }]);
   });
 
   it("reports an abort as not completed rather than as a failure", async () => {
