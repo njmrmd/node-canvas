@@ -102,6 +102,18 @@ describe('streamChat', () => {
 		assert.ok(events.some((e) => e.type === 'thinking'));
 	});
 
+	it('the [huge] marker streams a ~350 KB reply', async () => {
+		const events = await collect('claude-opus-5-5', '[huge] go');
+		const text = events
+			.filter((e) => e.type === 'text')
+			.map((e) => (e as { text: string }).text)
+			.join('');
+		assert.ok(text.length > 340_000 && text.length < 400_000, `length ${text.length}`);
+		assert.ok(text.endsWith('END-OF-HUGE'));
+		assert.ok(new Set(text.split(/\s+/)).size > 20);
+		assert.equal(events.at(-1)?.type, 'done');
+	});
+
 	it('turns a refusal into a model_declined error event', async () => {
 		const events = await collect('claude-opus-5-5', '[refuse] no');
 		assert.deepEqual(events.at(-1), {

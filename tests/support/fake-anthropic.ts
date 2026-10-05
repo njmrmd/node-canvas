@@ -19,7 +19,7 @@ function words(seed: string, n: number): string {
 	let h = [...seed].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
 	const out: string[] = [];
 	for (let i = 0; i < n; i++) {
-		h = (h * 1103515245 + 12345) >>> 0;
+		h = (Math.imul(h, 1103515245) + 12345) >>> 0;
 		out.push(WORDS[h % WORDS.length]);
 		if (i % 40 === 39) out.push('\n\n');
 	}
@@ -32,7 +32,7 @@ function plan(prompt: string) {
 		.trim()
 		.slice(0, 60);
 	let text = `Echo: ${clean}. ${words(prompt, prompt.includes('[long]') ? 600 : 40)}`;
-	if (prompt.includes('[huge]')) text = `${words(prompt, 50_000)} END-OF-HUGE`;
+	if (prompt.includes('[huge]')) text = `${words(prompt, 64_000)} END-OF-HUGE`;
 	if (prompt.includes('[markdown]')) {
 		text =
 			'Here is **bold** and `code`.\n\n- first\n- second\n\n```js\nconst x = 1;\n```\n\n' +
