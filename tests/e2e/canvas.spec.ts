@@ -141,3 +141,19 @@ test('an over-long message is refused in the composer and the draft is kept', as
 	await expect(page.getByText('This message is too long to send.')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
 });
+
+test('a reply that did not finish says so in the composer instead of waiting forever', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const refused = await send(page, '[refuse] nope', { wait: false });
+	await expect(page.locator(`article[data-node-id="${refused}"]`)).toHaveAttribute('data-status', 'error');
+	await expect(page.getByTestId('composer-target')).toHaveAttribute('data-target-id', refused);
+	await expect(page.getByLabel('Message')).toHaveAttribute(
+		'placeholder',
+		"This reply didn't finish. Branch from another card, or start a new conversation."
+	);
+	await page.getByLabel('Message').fill('follow up');
+	await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
+	await page.getByRole('button', { name: 'New conversation' }).click();
+	await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
+});

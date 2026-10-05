@@ -132,7 +132,7 @@ export class CanvasStore {
 		if (!this.online) return copy('composer.placeholder.offline');
 		if (this.limitReached) return copy('composer.placeholder.rateLimited');
 		const t = this.target ? this.graph.nodesById[this.target] : null;
-		if (t && !canBranchFrom(t)) return copy('branch.disabled');
+		if (t && !canBranchFrom(t)) return copy(t.status === 'error' || t.status === 'interrupted' ? 'branch.failed' : 'branch.disabled');
 		return null;
 	}
 

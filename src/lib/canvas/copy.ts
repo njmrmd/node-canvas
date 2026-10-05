@@ -134,6 +134,10 @@ const PORT_RULED = {
   /* The draft is over `MAX_MESSAGE_CHARS`; nothing is sent, the draft stays. */
   "composer.tooLong":
     "This message is too long to send. Shorten it to under 100,000 characters.",
+  /* The target failed or was stopped before any reply text: it never will
+   * finish, so `branch.disabled` would promise something that cannot happen. */
+  "branch.failed":
+    "This reply didn't finish. Branch from another card, or start a new conversation.",
 } as const;
 
 export const COPY = {
