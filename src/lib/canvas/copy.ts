@@ -125,7 +125,23 @@ const REVIEW_APPROVED = {
   "delete.undo.action": "Undo",
 } as const;
 
-export const COPY = { ...SPEC_9, ...SPEC_ELSEWHERE, ...REVIEW_APPROVED } as const;
+/**
+ * Strings ruled on the port's Plan 2 final review, for states the spec does not
+ * describe. Kept apart from the groups above for the same reason
+ * `REVIEW_APPROVED` is: the source is the ruling, not the spec.
+ */
+const PORT_RULED = {
+  /* The draft is over `MAX_MESSAGE_CHARS`; nothing is sent, the draft stays. */
+  "composer.tooLong":
+    "This message is too long to send. Shorten it to under 100,000 characters.",
+} as const;
+
+export const COPY = {
+  ...SPEC_9,
+  ...SPEC_ELSEWHERE,
+  ...REVIEW_APPROVED,
+  ...PORT_RULED,
+} as const;
 
 export type CopyKey = keyof typeof COPY;
 

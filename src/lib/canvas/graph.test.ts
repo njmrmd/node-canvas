@@ -13,6 +13,7 @@ import {
   failNode,
   interruptNode,
   isEmpty,
+  MAX_BRANCH_CHARS,
   moveNode,
   pathToRoot,
   removeBranch,
@@ -192,6 +193,32 @@ describe("conversation graph", () => {
       assert.equal(graph.nodesById.a.thinking, "let me think");
       assert.equal(graph.nodesById.a.response, "an answer");
       assert.equal(graph.nodesById.a.status, "streaming");
+    });
+
+    it("stops appending text and thinking at the saved-size cap", () => {
+      let graph = addNode(createGraph(), { id: "a", prompt: "hi", position: ORIGIN }).graph;
+      graph = startStreaming(graph, "a");
+      graph = appendText(graph, "a", "x".repeat(MAX_BRANCH_CHARS - 3));
+      graph = appendText(graph, "a", "abcdef");
+      graph = appendThinking(graph, "a", "t".repeat(MAX_BRANCH_CHARS + 10));
+
+      assert.equal(graph.nodesById.a.response.length, MAX_BRANCH_CHARS);
+      assert.ok(graph.nodesById.a.response.endsWith("xabc"));
+      assert.equal(graph.nodesById.a.thinking.length, MAX_BRANCH_CHARS);
+
+      const full = graph;
+      assert.equal(appendText(full, "a", "more"), full, "a full reply is left untouched");
+      assert.equal(appendThinking(full, "a", "more"), full, "full thinking is left untouched");
+    });
+
+    it("never splits a surrogate pair at the cap", () => {
+      let graph = addNode(createGraph(), { id: "a", prompt: "hi", position: ORIGIN }).graph;
+      graph = startStreaming(graph, "a");
+      graph = appendText(graph, "a", "x".repeat(MAX_BRANCH_CHARS - 1));
+      graph = appendText(graph, "a", "😀");
+
+      assert.equal(graph.nodesById.a.response.length, MAX_BRANCH_CHARS - 1);
+      assert.equal(graph.nodesById.a.response.isWellFormed(), true);
     });
 
     it("keeps partial text when interrupted", () => {

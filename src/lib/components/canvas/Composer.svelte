@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { copy } from '$lib/canvas/copy';
 	import { useCanvas } from '$lib/canvas/store.svelte';
+	import { MAX_MESSAGE_CHARS } from '$lib/shared/chat-limits';
 
 	const store = useCanvas();
 	let text = $state('');
 	let field = $state<HTMLTextAreaElement>();
 	const blocked = $derived(store.sendBlockedReason);
+	const tooLong = $derived(text.trim().length > MAX_MESSAGE_CHARS);
 	const placeholder = $derived(blocked ?? (store.target ? copy('composer.placeholder.reply') : copy('composer.placeholder')));
 
 	function submit() {
@@ -47,8 +49,9 @@
 				}
 			}}
 		></textarea>
-		<button type="submit" disabled={!text.trim() || !!blocked}>Send</button>
+		<button type="submit" disabled={!text.trim() || !!blocked || tooLong}>Send</button>
 	</div>
+	{#if tooLong}<p class="note" role="status">{copy('composer.tooLong')}</p>{/if}
 </form>
 
 <style>
@@ -93,6 +96,11 @@
 	button[type='submit']:disabled {
 		opacity: 0.45;
 		cursor: default;
+	}
+	.note {
+		margin: var(--space-2) 0 0;
+		font: var(--text-xs);
+		color: var(--cy-ink-soft);
 	}
 	.link {
 		border: 0;

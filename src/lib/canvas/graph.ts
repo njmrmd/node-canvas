@@ -355,6 +355,21 @@ export function startStreaming(
   );
 }
 
+/**
+ * `current + text`, cut at `MAX_BRANCH_CHARS` — the most the server will save
+ * for a response or a reasoning summary. Past the cap the rest of the stream is
+ * dropped rather than kept on screen and refused by every save. Null when
+ * nothing fits. Never ends on half a surrogate pair.
+ */
+function capped(current: string, text: string): string | null {
+  let room = MAX_BRANCH_CHARS - current.length;
+  if (room <= 0) return null;
+  if (text.length <= room) return current + text;
+  const code = text.charCodeAt(room - 1);
+  if (code >= 0xd800 && code <= 0xdbff) room -= 1;
+  return room > 0 ? current + text.slice(0, room) : null;
+}
+
 export function appendText(
   graph: ConversationGraph,
   nodeId: string,
@@ -362,7 +377,8 @@ export function appendText(
   now?: number,
 ): ConversationGraph {
   const node = requireNode(graph, nodeId);
-  return patchNode(graph, nodeId, { response: node.response + text }, now);
+  const response = capped(node.response, text);
+  return response === null ? graph : patchNode(graph, nodeId, { response }, now);
 }
 
 export function appendThinking(
@@ -372,7 +388,8 @@ export function appendThinking(
   now?: number,
 ): ConversationGraph {
   const node = requireNode(graph, nodeId);
-  return patchNode(graph, nodeId, { thinking: node.thinking + text }, now);
+  const thinking = capped(node.thinking, text);
+  return thinking === null ? graph : patchNode(graph, nodeId, { thinking }, now);
 }
 
 export function completeNode(

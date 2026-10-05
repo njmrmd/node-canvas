@@ -24,6 +24,7 @@ import { Saver, type SaveBody } from './saver';
 import { streamChat } from './stream';
 import { StreamQueue, type Outcome } from './streams';
 import type { Viewport } from './viewport';
+import { MAX_MESSAGE_CHARS } from '../shared/chat-limits';
 import type { ChatStreamEvent } from '../shared/chat-types';
 
 type Point = { x: number; y: number };
@@ -164,9 +165,11 @@ export class CanvasStore {
 		this.saver.markView();
 	}
 
+	/** False when nothing was sent: the composer keeps the draft. */
 	send(prompt: string): boolean {
 		const text = prompt.trim();
-		if (!text || this.sendBlockedReason) return false;
+		// Over the cap the server refuses to save the node, so none is created; the composer says why.
+		if (!text || text.length > MAX_MESSAGE_CHARS || this.sendBlockedReason) return false;
 		const parentId = this.target;
 		const heights = this.measure();
 		const position = parentId

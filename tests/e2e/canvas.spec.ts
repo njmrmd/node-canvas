@@ -126,3 +126,18 @@ test('leaving the canvas by an in-app link keeps the finished reply', async ({ p
 	await expect(card).toHaveAttribute('data-status', 'complete');
 	await expect(card).toContainText('Echo: leave right after.');
 });
+
+test('an over-long message is refused in the composer and the draft is kept', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const draft = 'x'.repeat(100_001);
+	await page.getByLabel('Message').fill(draft);
+	await expect(page.getByText('This message is too long to send. Shorten it to under 100,000 characters.')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
+	await page.getByLabel('Message').press('Enter');
+	await expect(cards(page)).toHaveCount(0);
+	await expect(page.getByLabel('Message')).toHaveValue(draft);
+	await page.getByLabel('Message').fill('x'.repeat(100_000));
+	await expect(page.getByText('This message is too long to send.')).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
+});
