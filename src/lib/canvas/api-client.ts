@@ -46,9 +46,18 @@ export type RateLimitSnapshot = {
  * headers are malformed — a missing budget is not a zero budget.
  */
 export function readRateLimit(headers: Headers): RateLimitSnapshot | null {
-  const limit = Number(headers.get("RateLimit-Limit"));
-  const remaining = Number(headers.get("RateLimit-Remaining"));
-  const resetSeconds = Number(headers.get("RateLimit-Reset"));
+  const limitStr = headers.get("RateLimit-Limit");
+  const remainingStr = headers.get("RateLimit-Remaining");
+  const resetStr = headers.get("RateLimit-Reset");
+
+  // Return null if any header is missing — a missing budget is not a zero budget.
+  if (!limitStr || !remainingStr || !resetStr) {
+    return null;
+  }
+
+  const limit = Number(limitStr);
+  const remaining = Number(remainingStr);
+  const resetSeconds = Number(resetStr);
 
   if (
     !Number.isFinite(limit) ||

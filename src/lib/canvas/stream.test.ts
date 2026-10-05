@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { ApiCallError } from "./api-client";
+import { ApiCallError, readRateLimit } from "./api-client";
 import type { ChatStreamEvent } from "../shared/chat-types";
 import { streamChat } from "./stream";
 
@@ -289,5 +289,25 @@ describe("streamChat", () => {
         return true;
       },
     );
+  });
+
+  it("returns null when rate limit headers are absent", () => {
+    const emptyHeaders = new Headers();
+    assert.equal(readRateLimit(emptyHeaders), null);
+  });
+
+  it("does not call onRateLimit when headers are absent", async () => {
+    const called: boolean[] = [];
+    stubFetch(
+      sseResponse([frame({ type: "text", text: "answer" }), frame(DONE)], {}),
+    );
+
+    await streamChat({
+      ...REQUEST,
+      onRateLimit: () => called.push(true),
+      onEvent: () => {},
+    });
+
+    assert.deepEqual(called, []);
   });
 });
