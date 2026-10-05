@@ -3036,7 +3036,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Create: `.github/workflows/ci.yml`
 
 **Interfaces:**
-- Produces: a required `verify` check on every pull request; a production deployment at `https://node-canvas.vercel.app`.
+- Produces: a required `verify` check on every pull request; a production deployment at `https://node-canvas-theta.vercel.app`.
 
 > **Steps 3–6 are outward-facing and need the user's explicit go-ahead in chat before each one** (creating a public repository, connecting Vercel, provisioning a database, setting secrets). Ask, wait for yes, then act. Never paste a secret value into chat or a command line that is echoed.
 
@@ -3134,11 +3134,11 @@ git commit --allow-empty -m "chore: trigger the first production deploy
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push
 ```
 
-Expected: `Applied 1 migration(s).`, then `curl -s https://node-canvas.vercel.app/api/health` returns `{"ok":true,"commit":"<sha>"}` matching `git rev-parse --short HEAD`.
+Expected: `Applied 1 migration(s).`, then `curl -s https://node-canvas-theta.vercel.app/api/health` returns `{"ok":true,"commit":"<sha>"}` matching `git rev-parse --short HEAD`.
 
 - [ ] **Step 7: Smoke-test production by hand**
 
-Sign up at `https://node-canvas.vercel.app/sign-up` with a throwaway address, connect a real key (the user does this — never type a real key on their behalf), confirm the last four show, delete the account.
+Sign up at `https://node-canvas-theta.vercel.app/sign-up` with a throwaway address, connect a real key (the user does this — never type a real key on their behalf), confirm the last four show, delete the account.
 
 ---
 
