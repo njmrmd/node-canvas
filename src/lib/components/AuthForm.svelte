@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
-	import type { RouteIdWithSearchOrHash } from '$app/types';
 	import { AUTH_COPY, type AuthMode } from '$lib/copy/auth';
 	import Alert from './Alert.svelte';
 	import Button from './Button.svelte';
@@ -13,9 +12,12 @@
 	const copy = $derived(AUTH_COPY[mode]);
 	// footerHref is always '/sign-in' or '/sign-up', optionally with a `next` query — both are
 	// known routes, but the template literal loses that narrow type through $derived, so it is
-	// asserted back to the type resolve() expects. The runtime value is unchanged.
+	// asserted back to the type resolve() expects. The runtime value is unchanged. (Not the
+	// generated RouteIdWithSearchOrHash: once a dynamic route exists that union includes routes
+	// resolve() wants params for.)
+	type AuthPath = '/sign-in' | '/sign-up' | `/sign-in?${string}` | `/sign-up?${string}`;
 	const footerHref = $derived(
-		(next ? `${copy.footerHref}?next=${encodeURIComponent(next)}` : copy.footerHref) as RouteIdWithSearchOrHash
+		(next ? `${copy.footerHref}?next=${encodeURIComponent(next)}` : copy.footerHref) as AuthPath
 	);
 	let busy = $state(false);
 </script>
