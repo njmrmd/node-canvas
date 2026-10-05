@@ -1,28 +1,8 @@
 import { isHttpError, isRedirect, json, type RequestHandler } from '@sveltejs/kit';
+import { ERROR_CODES, type ApiErrorBody, type ErrorCode } from '../shared/error-codes';
 
-/**
- * One error envelope for every JSON route:
- *   { "error": { "code": "invalid_credentials", "message": "…", "fields"?: {…} } }
- * `code` is the stable contract; `message` is written for the person who hit it.
- */
-export const ERROR_CODES = [
-	'invalid_request',
-	'payload_too_large',
-	'unauthenticated',
-	'not_found',
-	'email_taken',
-	'invalid_credentials',
-	'invalid_api_key',
-	'provider_unavailable',
-	'unsupported_model',
-	'no_key_configured',
-	'rate_limited',
-	'csrf_failed',
-	'not_configured',
-	'internal_error'
-] as const;
-
-export type ErrorCode = (typeof ERROR_CODES)[number];
+export { ERROR_CODES };
+export type { ApiErrorBody, ErrorCode };
 
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
 	invalid_request: 400,
@@ -33,6 +13,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
 	invalid_credentials: 401,
 	invalid_api_key: 400,
 	provider_unavailable: 502,
+	model_declined: 422,
 	unsupported_model: 400,
 	no_key_configured: 409,
 	rate_limited: 429,
@@ -44,10 +25,6 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
 export function statusFor(code: ErrorCode): number {
 	return STATUS_BY_CODE[code];
 }
-
-export type ApiErrorBody = {
-	error: { code: ErrorCode; message: string; fields?: Record<string, string> };
-};
 
 /** Thrown anywhere below a route; `withRoute` turns it into the envelope. */
 export class ApiError extends Error {
