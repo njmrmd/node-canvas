@@ -50,6 +50,7 @@ export class CanvasStore {
 	private readonly streams: StreamQueue;
 	private readonly saver: Saver;
 	private readonly cleanups: (() => void)[] = [];
+	private rateLimitReset: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(init: CanvasInit) {
 		const loaded = fromWire(init.nodes);
@@ -99,9 +100,14 @@ export class CanvasStore {
 	}
 
 	dispose(): void {
+		this.streams.stopAll();
+		// An in-app link leaves without pagehide or visibilitychange, and the page's JS lives on, so a
+		// normal flush (no keepalive cap) saves what changed since the last tick.
+		void this.saver.flush();
 		this.cleanups.forEach((f) => f());
 		this.saver.stop();
-		this.streams.stopAll();
+		if (this.rateLimitReset !== null) clearTimeout(this.rateLimitReset);
+		this.rateLimitReset = null;
 	}
 
 	/** Replace the graph and mark every node object that changed. */
@@ -200,8 +206,11 @@ export class CanvasStore {
 
 	private noteRateLimit(snapshot: RateLimitSnapshot): void {
 		this.rateLimit = snapshot;
+		if (this.rateLimitReset !== null) clearTimeout(this.rateLimitReset);
+		this.rateLimitReset = null;
 		if (snapshot.remaining === 0) {
-			setTimeout(() => {
+			this.rateLimitReset = setTimeout(() => {
+				this.rateLimitReset = null;
 				if (this.rateLimit === snapshot) this.rateLimit = { ...snapshot, remaining: snapshot.limit };
 			}, snapshot.resetSeconds * 1000);
 		}

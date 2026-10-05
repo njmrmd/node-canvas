@@ -114,3 +114,15 @@ test('a 350 KB reply survives a reload', async ({ page, signIn }) => {
 	await page.reload();
 	await expect(page.locator(`article[data-node-id="${id}"]`)).toContainText('END-OF-HUGE');
 });
+
+test('leaving the canvas by an in-app link keeps the finished reply', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const id = await send(page, 'leave right after');
+	await page.getByRole('link', { name: 'Account' }).click();
+	await page.waitForURL('**/keys');
+	await page.goto('/canvas');
+	const card = page.locator(`article[data-node-id="${id}"]`);
+	await expect(card).toHaveAttribute('data-status', 'complete');
+	await expect(card).toContainText('Echo: leave right after.');
+});
