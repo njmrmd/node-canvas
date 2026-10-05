@@ -169,14 +169,22 @@ test('50 nodes, 3 concurrent streams, continuous pan: p95 ≤ 20 ms at 4× CPU',
 	// Pan from a bare-pane point, and keep the mouse moving until the sample window closes, so that every
 	// measured frame is a frame of the pan.
 	let done = false;
-	void measuring.then(() => (done = true));
+	// Stop panning when the window closes, however it closes. The rejection is not swallowed: it is
+	// surfaced by `await measuring` below, and this chain has its own handler so it cannot go unhandled.
+	const stop = () => {
+		done = true;
+	};
+	void measuring.then(stop, stop);
 	await page.mouse.move(start.x, start.y);
 	await page.mouse.down();
-	for (let i = 0; !done; i++) {
-		await page.mouse.move(start.x + Math.sin(i / 8) * 90, start.y + Math.cos(i / 11) * 50);
-		await page.waitForTimeout(16);
+	try {
+		for (let i = 0; !done; i++) {
+			await page.mouse.move(start.x + Math.sin(i / 8) * 90, start.y + Math.cos(i / 11) * 50);
+			await page.waitForTimeout(16);
+		}
+	} finally {
+		await page.mouse.up();
 	}
-	await page.mouse.up();
 
 	const sample = await measuring;
 	console.log(JSON.stringify({ ...sample, canaryMs: { baseline: Math.round(baseline.ms * 10) / 10, throttled: Math.round(throttled.ms * 10) / 10 } }));
