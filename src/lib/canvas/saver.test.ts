@@ -173,24 +173,51 @@ describe('Saver', () => {
 
 	it('includes in-flight nodes in keepalive and counts them in pending', async () => {
 		const h = harness({ a: node('a') });
-		let keepaliveRan = false;
+		let normalPutResolve: (value: { rejected: string[] }) => void = () => {};
+		let keepaliveBody: SaveBody = { upserts: [] };
 		(h.saver as unknown as { deps: SaverDeps }).deps.put = async (body, keepalive) => {
-			if (keepalive) {
-				keepaliveRan = true;
-				// When keepalive runs, check that 'a' is included (from inFlight)
-				assert.deepEqual(body.upserts.map((n) => n.id), ['a']);
-				// And check that pending counts it
-				assert.equal(h.saver.pending, 1);
+			if (!keepalive) {
+				// Normal flush: hold this open
+				return new Promise((resolve) => (normalPutResolve = resolve));
+			} else {
+				// Keepalive: record what was sent
+				keepaliveBody = body;
+				return { rejected: [] };
 			}
-			return { rejected: [] };
 		};
 		h.saver.markNode('a');
 		const flushPromise = h.saver.flush();
-		// Start keepalive while first flush is still running
+		// Start keepalive while normal flush is still in-flight (put not resolved yet)
 		const keepalivePromise = h.saver.flush({ keepalive: true });
-		await Promise.all([flushPromise, keepalivePromise]);
-		assert.ok(keepaliveRan);
+		// Let keepalive run
+		await new Promise((r) => setImmediate(r));
+		// Assert keepalive included the in-flight node
+		assert.deepEqual(keepaliveBody.upserts.map((n) => n.id), ['a']);
+		assert.equal(h.saver.pending, 1); // Still in-flight from normal flush
+		// Complete the normal flush
+		normalPutResolve({ rejected: [] });
+		await flushPromise;
+		await keepalivePromise;
 		assert.equal(h.saver.pending, 0);
+	});
+
+	it('keepalive does not send child when oversized parent is visited and skipped first', async () => {
+		const big = 'x'.repeat(65_000);
+		const small = 'x'.repeat(5_000);
+		const h = harness({
+			p: node('p', { response: big }),
+			c: node('c', { response: small, parentId: 'p' })
+		}, { p: 1, c: 2 });
+		// Empty priority; mark p first so it's visited first in Set iteration order
+		(h.saver as unknown as { deps: SaverDeps }).deps.priority = () => [];
+		h.saver.markNode('p');
+		h.saver.markNode('c');
+		await h.saver.flush({ keepalive: true });
+		// p is ~65 KB, skipped immediately (> 60 KB)
+		// c walks back, finds skipped p ancestor, walk returns [], skips c
+		// Result: no nodes sent (empty body not sent)
+		assert.equal(h.sent.length, 0);
+		assert.equal(h.saver.pending, 2);
 	});
 
 	it('keepalive skips child whose parent is too large to fit together', async () => {
@@ -221,6 +248,27 @@ describe('Saver', () => {
 		assert.equal(h.sent.length, 1);
 		assert.deepEqual(h.sent[0].body.upserts.map((n) => n.id), ['p', 'c']);
 		assert.equal(h.saver.pending, 2);
+	});
+
+	it('pending counts union of dirty and in-flight, not sum', async () => {
+		const h = harness({ a: node('a') });
+		let normalPutResolve: (value: { rejected: string[] }) => void = () => {};
+		(h.saver as unknown as { deps: SaverDeps }).deps.put = async (_body, keepalive) => {
+			if (!keepalive) {
+				return new Promise((resolve) => (normalPutResolve = resolve));
+			}
+			return { rejected: [] };
+		};
+		h.saver.markNode('a');
+		const flushPromise = h.saver.flush();
+		// Let run() start and move 'a' to inFlightIds
+		await new Promise((r) => setImmediate(r));
+		// Now mark 'a' again while in-flight
+		h.saver.markNode('a');
+		// pending should be 1 (union), not 2 (sum)
+		assert.equal(h.saver.pending, 1);
+		normalPutResolve({ rejected: [] });
+		await flushPromise;
 	});
 
 	it('handles getView throwing and recovers', async () => {

@@ -50,9 +50,9 @@ export class Saver {
 	}
 
 	get pending(): number {
-		const totalDirty = this.dirty.size + this.inFlightIds.size;
+		const allDirtyIds = new Set([...this.dirty, ...this.inFlightIds]);
 		const totalView = this.viewDirty || this.inFlightView ? 1 : 0;
-		return totalDirty + totalView;
+		return allDirtyIds.size + totalView;
 	}
 
 	start(): void {
@@ -144,6 +144,14 @@ export class Saver {
 
 	/** Unload path: one request under the browser's keepalive cap; nothing is cleared. */
 	private async flushKeepalive(): Promise<void> {
+		try {
+			await this.flushKeepaliveImpl();
+		} catch {
+			// Never reject on unload path; swallow errors from getNode/getView
+		}
+	}
+
+	private async flushKeepaliveImpl(): Promise<void> {
 		// Candidates = dirty ∪ inFlight
 		const candidates = new Set([...this.dirty, ...this.inFlightIds]);
 		const first = this.deps.priority().filter((id) => candidates.has(id));
@@ -159,7 +167,10 @@ export class Saver {
 			const chain: string[] = [];
 			let current: string | null = id;
 			while (current !== null) {
-				if (included.has(current) || skipped.has(current) || !candidates.has(current)) break;
+				if (included.has(current)) break;
+				// If ancestor is skipped (or a candidate not yet included), can't use this candidate
+				if (skipped.has(current)) return [];
+				if (!candidates.has(current)) break;
 				const n = this.deps.getNode(current);
 				if (!n) break;
 				chain.unshift(current);

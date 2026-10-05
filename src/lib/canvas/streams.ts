@@ -93,14 +93,13 @@ export class StreamQueue {
 
 	private finish(id: string, entry: Active, outcome: Outcome): void {
 		if (entry.timer !== null) this.clock.clearTimeout(entry.timer);
+		// Only delete if this is still the active entry (not re-enqueued)
+		const wasActive = this.active.get(id) === entry;
+		if (wasActive) this.active.delete(id);
 		try {
 			this.settle(id, outcome);
 		} finally {
-			// Only delete if this is still the active entry (not re-enqueued)
-			if (this.active.get(id) === entry) {
-				this.active.delete(id);
-				this.pump();
-			}
+			if (wasActive) this.pump();
 			this.onChange();
 		}
 	}
