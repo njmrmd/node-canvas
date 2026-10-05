@@ -29,11 +29,16 @@ export class Saver {
 	private dirty = new Set<string>();
 	private viewDirty = false;
 	private inFlight: Promise<void> | null = null;
+	private inFlightIds = new Set<string>();
+	private inFlightView = false;
 	private timer: ReturnType<typeof setInterval> | null = null;
 
 	constructor(
 		private deps: SaverDeps,
-		private readonly clock = { setInterval, clearInterval }
+		private readonly clock = {
+			setInterval: ((fn: () => void, ms: number) => globalThis.setInterval(fn, ms)) as typeof setInterval,
+			clearInterval: ((id: ReturnType<typeof setInterval>) => globalThis.clearInterval(id)) as typeof clearInterval
+		}
 	) {}
 
 	markNode(id: string): void {
@@ -45,7 +50,9 @@ export class Saver {
 	}
 
 	get pending(): number {
-		return this.dirty.size + (this.viewDirty ? 1 : 0);
+		const totalDirty = this.dirty.size + this.inFlightIds.size;
+		const totalView = this.viewDirty || this.inFlightView ? 1 : 0;
+		return totalDirty + totalView;
 	}
 
 	start(): void {
@@ -93,39 +100,107 @@ export class Saver {
 	}
 
 	private async run(): Promise<void> {
-		const batches = this.batches();
-		this.dirty.clear();
-		this.viewDirty = false;
-		for (let i = 0; i < batches.length; i++) {
-			try {
-				await this.deps.put(batches[i], false);
-			} catch (error) {
-				// Everything not yet confirmed goes back to dirty; changes made meanwhile are already there.
-				for (const b of batches.slice(i)) {
-					b.upserts.forEach((n) => this.dirty.add(n.id));
-					if (b.view) this.viewDirty = true;
+		try {
+			const batches = this.batches();
+			// Move to in-flight before clearing dirty
+			for (const b of batches) b.upserts.forEach((n) => this.inFlightIds.add(n.id));
+			if (batches.some((b) => b.view)) this.inFlightView = true;
+			this.dirty.clear();
+			this.viewDirty = false;
+
+			for (let i = 0; i < batches.length; i++) {
+				try {
+					await this.deps.put(batches[i], false);
+					// Remove successfully sent ids from in-flight
+					batches[i].upserts.forEach((n) => this.inFlightIds.delete(n.id));
+					if (batches[i].view) this.inFlightView = false;
+				} catch (error) {
+					// Everything not yet confirmed goes back to dirty; changes made meanwhile are already there.
+					for (const b of batches.slice(i)) {
+						b.upserts.forEach((n) => this.dirty.add(n.id));
+						if (b.view) this.viewDirty = true;
+					}
+					this.inFlightIds.clear();
+					this.inFlightView = false;
+					if (!isNetwork(error)) this.deps.onError(this.deps.failureMessage);
+					return;
 				}
-				if (!isNetwork(error)) this.deps.onError(this.deps.failureMessage);
-				return;
+			}
+			this.deps.onError(null);
+		} catch {
+			// Unexpected error in deps (e.g., getView throws)
+			// Put all batched ids back to dirty
+			for (const id of this.inFlightIds) this.dirty.add(id);
+			if (this.inFlightView) this.viewDirty = true;
+			this.inFlightIds.clear();
+			this.inFlightView = false;
+			try {
+				this.deps.onError(this.deps.failureMessage);
+			} catch {
+				// Ignore errors from onError itself
 			}
 		}
-		this.deps.onError(null);
 	}
 
 	/** Unload path: one request under the browser's keepalive cap; nothing is cleared. */
 	private async flushKeepalive(): Promise<void> {
-		const first = this.deps.priority().filter((id) => this.dirty.has(id));
-		const rest = [...this.dirty].filter((id) => !first.includes(id));
-		const body: SaveBody = { upserts: [], ...(this.viewDirty ? { view: this.deps.getView() } : {}) };
+		// Candidates = dirty ∪ inFlight
+		const candidates = new Set([...this.dirty, ...this.inFlightIds]);
+		const first = this.deps.priority().filter((id) => candidates.has(id));
+		const rest = [...candidates].filter((id) => !first.includes(id));
+
+		const body: SaveBody = { upserts: [], ...(this.viewDirty || this.inFlightView ? { view: this.deps.getView() } : {}) };
 		let size = bytes(body);
+		const included = new Set<string>();
+		const skipped = new Set<string>();
+
+		// Walk candidates in priority order, then rest
+		const walk = (id: string): string[] => {
+			const chain: string[] = [];
+			let current: string | null = id;
+			while (current !== null) {
+				if (included.has(current) || skipped.has(current) || !candidates.has(current)) break;
+				const n = this.deps.getNode(current);
+				if (!n) break;
+				chain.unshift(current);
+				current = n.parentId;
+			}
+			return chain;
+		};
+
 		for (const id of [...first, ...rest]) {
-			const n = this.deps.getNode(id);
-			if (!n) continue;
-			const s = bytes(n) + 1;
-			if (size + s > KEEPALIVE_BYTES) continue;
-			body.upserts.push(n);
-			size += s;
+			if (included.has(id) || skipped.has(id)) continue;
+			const chain = walk(id);
+			if (chain.length === 0) continue;
+
+			// Check if entire chain fits
+			let chainSize = 0;
+			const nodes: NodeWire[] = [];
+			for (const cid of chain) {
+				const n = this.deps.getNode(cid);
+				if (!n) continue;
+				const s = bytes(n) + 1;
+				chainSize += s;
+				nodes.push(n);
+			}
+
+			if (size + chainSize > KEEPALIVE_BYTES) {
+				// Mark entire chain as skipped
+				for (const cid of chain) skipped.add(cid);
+				continue;
+			}
+
+			// Add entire chain
+			for (const n of nodes) {
+				body.upserts.push(n);
+				included.add(n.id);
+			}
+			size += chainSize;
 		}
+
+		// Sort by depth
+		body.upserts.sort((a, b) => this.deps.depthOf(a.id) - this.deps.depthOf(b.id) || a.createdAt - b.createdAt);
+
 		if (body.upserts.length === 0 && !body.view) return;
 		await this.deps.put(body, true).catch(() => {});
 	}

@@ -98,4 +98,43 @@ describe('StreamQueue', () => {
 		await tick();
 		assert.deepEqual(outcome, { kind: 'failed', error: boom });
 	});
+
+	it('works with default clock (no `this` binding required)', async () => {
+		const q = new StreamQueue(() => {}, undefined);
+		const settled: Outcome[] = [];
+		(q as unknown as { settle: (id: string, o: Outcome) => void }).settle = (_id, o) => settled.push(o);
+		q.enqueue('a', async () => ({ completed: true }));
+		await tick();
+		assert.equal(settled.length, 1);
+		assert.deepEqual(settled[0], { kind: 'completed' });
+	});
+
+	it('default clock functions do not reference `this`', () => {
+		const q = new StreamQueue(() => {}, undefined);
+		const clock = (q as unknown as { clock: { setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (id: unknown) => void } }).clock;
+
+		// Test setTimeout doesn't need `this` - should not throw
+		const setTimeoutId = Reflect.apply(clock.setTimeout, {}, [() => {}, 1]);
+		// Test clearTimeout doesn't need `this` - should not throw
+		Reflect.apply(clock.clearTimeout, {}, [setTimeoutId]);
+		assert.ok(true);
+	});
+
+	it('allows re-enqueuing the same id before old run settles', async () => {
+		const settled: [string, Outcome][] = [];
+		const q = new StreamQueue((id, o) => settled.push([id, o]), undefined, undefined, fakeClock().clock);
+		const oldRun = controllable();
+		const newRun = controllable();
+		q.enqueue('a', oldRun.run);
+		q.stop('a');
+		q.enqueue('a', newRun.run);
+		assert.equal(q.isActive('a'), true);
+		oldRun.resolve({ completed: false });
+		await tick();
+		assert.deepEqual(settled, [['a', { kind: 'stopped' }]]);
+		assert.equal(q.isActive('a'), true);
+		newRun.resolve({ completed: true });
+		await tick();
+		assert.deepEqual(settled, [['a', { kind: 'stopped' }], ['a', { kind: 'completed' }]]);
+	});
 });

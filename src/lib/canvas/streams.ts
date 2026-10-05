@@ -21,7 +21,10 @@ export class StreamQueue {
 		private readonly settle: (id: string, outcome: Outcome) => void,
 		private readonly onChange: () => void = () => {},
 		private readonly options = { maxActive: MAX_ACTIVE_STREAMS, firstTokenMs: FIRST_TOKEN_TIMEOUT_MS },
-		private readonly clock: Clock = { setTimeout, clearTimeout }
+		private readonly clock: Clock = {
+			setTimeout: ((fn: () => void, ms: number) => globalThis.setTimeout(fn, ms)) as typeof setTimeout,
+			clearTimeout: ((id: ReturnType<typeof setTimeout>) => globalThis.clearTimeout(id)) as typeof clearTimeout
+		}
 	) {}
 
 	enqueue(id: string, run: Run): void {
@@ -90,9 +93,15 @@ export class StreamQueue {
 
 	private finish(id: string, entry: Active, outcome: Outcome): void {
 		if (entry.timer !== null) this.clock.clearTimeout(entry.timer);
-		this.active.delete(id);
-		this.settle(id, outcome);
-		this.pump();
-		this.onChange();
+		try {
+			this.settle(id, outcome);
+		} finally {
+			// Only delete if this is still the active entry (not re-enqueued)
+			if (this.active.get(id) === entry) {
+				this.active.delete(id);
+				this.pump();
+			}
+			this.onChange();
+		}
 	}
 }

@@ -132,4 +132,114 @@ describe('Saver', () => {
 		assert.deepEqual(h.sent[0].body.upserts.map((n) => n.id), ['s']);
 		assert.equal(h.saver.pending, 2);
 	});
+
+	it('works with default clock (no `this` binding required)', async () => {
+		const deps: SaverDeps = {
+			getNode: () => null,
+			depthOf: () => 0,
+			getView: () => ({ viewport: { x: 0, y: 0, zoom: 1 }, targetNodeId: null }),
+			put: async () => ({ rejected: [] }),
+			isOnline: () => true,
+			onError: () => {},
+			priority: () => [],
+			failureMessage: 'fail'
+		};
+		const saver = new Saver(deps);
+		saver.start();
+		saver.stop();
+		// If we get here, the clock functions work without `this`
+		assert.ok(true);
+	});
+
+	it('default clock functions do not reference `this`', () => {
+		const deps: SaverDeps = {
+			getNode: () => null,
+			depthOf: () => 0,
+			getView: () => ({ viewport: { x: 0, y: 0, zoom: 1 }, targetNodeId: null }),
+			put: async () => ({ rejected: [] }),
+			isOnline: () => true,
+			onError: () => {},
+			priority: () => [],
+			failureMessage: 'fail'
+		};
+		const saver = new Saver(deps);
+		const clock = (saver as unknown as { clock: { setInterval: (fn: () => void, ms: number) => unknown; clearInterval: (id: unknown) => void } }).clock;
+
+		// Test setInterval doesn't need `this`
+		const intervalId = Reflect.apply(clock.setInterval, {}, [() => {}, 1]);
+		Reflect.apply(clock.clearInterval, {}, [intervalId]);
+		assert.ok(true);
+	});
+
+	it('includes in-flight nodes in keepalive and counts them in pending', async () => {
+		const h = harness({ a: node('a') });
+		let keepaliveRan = false;
+		(h.saver as unknown as { deps: SaverDeps }).deps.put = async (body, keepalive) => {
+			if (keepalive) {
+				keepaliveRan = true;
+				// When keepalive runs, check that 'a' is included (from inFlight)
+				assert.deepEqual(body.upserts.map((n) => n.id), ['a']);
+				// And check that pending counts it
+				assert.equal(h.saver.pending, 1);
+			}
+			return { rejected: [] };
+		};
+		h.saver.markNode('a');
+		const flushPromise = h.saver.flush();
+		// Start keepalive while first flush is still running
+		const keepalivePromise = h.saver.flush({ keepalive: true });
+		await Promise.all([flushPromise, keepalivePromise]);
+		assert.ok(keepaliveRan);
+		assert.equal(h.saver.pending, 0);
+	});
+
+	it('keepalive skips child whose parent is too large to fit together', async () => {
+		const big = 'x'.repeat(35_000);
+		const h = harness({
+			p: node('p', { response: big }),
+			c: node('c', { response: big, parentId: 'p' })
+		}, { p: 1, c: 2 });
+		(h.saver as unknown as { deps: SaverDeps }).deps.priority = () => ['c'];
+		h.saver.markNode('p');
+		h.saver.markNode('c');
+		await h.saver.flush({ keepalive: true });
+		// Chain [p, c] is 70 KB > 60 KB, so neither is sent; no request
+		assert.equal(h.sent.length, 0);
+		assert.equal(h.saver.pending, 2);
+	});
+
+	it('keepalive sends parent and child if both fit', async () => {
+		const big = 'x'.repeat(20_000);
+		const h = harness({
+			p: node('p', { response: big }),
+			c: node('c', { response: big, parentId: 'p' })
+		}, { p: 1, c: 2 });
+		(h.saver as unknown as { deps: SaverDeps }).deps.priority = () => ['c'];
+		h.saver.markNode('p');
+		h.saver.markNode('c');
+		await h.saver.flush({ keepalive: true });
+		assert.equal(h.sent.length, 1);
+		assert.deepEqual(h.sent[0].body.upserts.map((n) => n.id), ['p', 'c']);
+		assert.equal(h.saver.pending, 2);
+	});
+
+	it('handles getView throwing and recovers', async () => {
+		let throwOnce = true;
+		const h = harness({ a: node('a') });
+		(h.saver as unknown as { deps: SaverDeps }).deps.getView = () => {
+			if (throwOnce) {
+				throwOnce = false;
+				throw new Error('view error');
+			}
+			return { viewport: { x: 0, y: 0, zoom: 1 }, targetNodeId: null };
+		};
+		h.saver.markNode('a');
+		h.saver.markView();
+		await h.saver.flush();
+		assert.deepEqual(h.errors, ['not saved']);
+		assert.equal(h.saver.pending, 2);
+		await h.saver.flush();
+		assert.deepEqual(h.errors, ['not saved', null]);
+		assert.equal(h.saver.pending, 0);
+	});
 });
