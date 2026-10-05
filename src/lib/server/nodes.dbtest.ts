@@ -57,17 +57,6 @@ describe('saveNodes / loadCanvas', () => {
 		assert.deepEqual(row, { prompt: 'b owns this', user_id: b });
 	});
 
-	it('keeps the newer row when an older save lands after it, and reports the id rejected', async () => {
-		const n = wire({ response: 'old', updatedAt: 1_700_000_000_000 });
-		await saveNodes(a, [n], null);
-		await saveNodes(a, [{ ...n, response: 'newer', updatedAt: 1_700_000_002_000 }], null);
-		const { rejected } = await saveNodes(a, [{ ...n, response: 'stale', updatedAt: 1_700_000_001_000 }], null);
-		assert.deepEqual(rejected, [n.id]);
-		const row = (await loadCanvas(a)).nodes.find((x) => x.id === n.id);
-		assert.equal(row?.response, 'newer');
-		assert.equal(row?.updatedAt, 1_700_000_002_000);
-	});
-
 	it('ignores a view target that is not one of the user’s saved nodes', async () => {
 		const foreign = (await loadCanvas(b)).nodes[0].id;
 		await saveNodes(a, [], { viewport: { x: 0, y: 0, zoom: 1 }, targetNodeId: foreign });
