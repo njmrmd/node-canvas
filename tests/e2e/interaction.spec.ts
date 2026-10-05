@@ -148,3 +148,24 @@ test('dragging a card moves it and the position survives a reload', async ({ pag
 	const reloaded = (await page.locator(`.svelte-flow__node[data-id="${id}"]`).boundingBox())!;
 	expect(Math.abs(reloaded.x - moved.x)).toBeLessThan(4);
 });
+
+test('dragging a streaming card stops auto-follow, so the viewport stays put', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const id = await send(page, '[slow][long] drag me while I stream', false);
+	await settled(page);
+	const before = await viewport(page);
+	// [slow][long] streams for ~30 s, so it is still growing through the drag and the wait below.
+	await expect(page.locator(`article[data-node-id="${id}"]`)).toHaveAttribute('data-status', 'streaming');
+	const title = page.locator(`article[data-node-id="${id}"] .prompt`);
+	const box = (await title.boundingBox())!;
+	const pane = (await page.locator('.svelte-flow__pane').boundingBox())!;
+	await page.mouse.move(box.x + 20, box.y + box.height / 2);
+	await page.mouse.down();
+	// Down until the growing card's bottom is off screen, so following would chase it, but the pointer
+	// stays clear of the pane's 40 px auto-pan band: any viewport move is the follow, not the drag.
+	await page.mouse.move(box.x + 20, pane.y + pane.height - 100, { steps: 60 });
+	await page.mouse.up();
+	await sleep(2000);
+	expect(await viewport(page)).toEqual(before);
+});

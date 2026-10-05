@@ -92,6 +92,7 @@
 			if (event) store.following = null;
 		}}
 		onmoveend={(_event, viewport) => store.setViewport(viewport)}
+		onnodedragstart={() => (store.following = null)}
 		onnodedragstop={({ targetNode }) => {
 			if (targetNode) store.moved(targetNode.id, targetNode.position);
 		}}
