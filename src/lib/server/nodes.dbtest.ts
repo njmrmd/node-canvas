@@ -32,7 +32,7 @@ describe('saveNodes / loadCanvas', () => {
 		assert.deepEqual(loaded.view, { viewport: { x: 5, y: 6, zoom: 0.5 }, targetNodeId: n.id });
 	});
 
-	it('saves a child before its parent in one batch (deferred FK)', async () => {
+	it('saves a child before its parent in one batch', async () => {
 		const parent = wire();
 		const child = wire({ parentId: parent.id });
 		await saveNodes(a, [child, parent], null);

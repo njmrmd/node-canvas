@@ -166,6 +166,9 @@ export async function saveNodes(userId: string, upserts: NodeWire[], view: ViewW
 			return { rejected: upserts.map((n) => n.id).filter((id) => !accepted.has(id)) };
 		});
 	} catch (error) {
+		// The parent FK is checked at the end of the single insert…select statement, not per row, so a
+		// child may come before its parent in one batch. A parent that is in neither the batch nor the
+		// table fails the statement, and the transaction rolls back with nothing written.
 		if ((error as { code?: string }).code === '23503') {
 			throw new ApiError('invalid_request', 'A node referenced a parent that is not on this canvas.');
 		}
