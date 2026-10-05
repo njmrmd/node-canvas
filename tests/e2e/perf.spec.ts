@@ -3,6 +3,8 @@ import type { Page } from '@playwright/test';
 
 type Sample = { frames: number; p50: number; p95: number; max: number; longTasks: number; cardsMutated: number };
 
+const WINDOW_MS = 5000;
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function viewport(page: Page) {
@@ -22,6 +24,53 @@ async function settled(page: Page) {
 		stable = now === last ? stable + 1 : 0;
 		last = now;
 	}
+}
+
+/** A point on the bare pane (not a card, control or the minimap), with room for the pan path around it. */
+async function emptyCanvasPoint(page: Page) {
+	const point = await page.evaluate(() => {
+		const r = document.querySelector('.svelte-flow__pane')!.getBoundingClientRect();
+		for (let y = r.top + 150; y < r.bottom - 150; y += 23)
+			for (let x = r.left + 150; x < r.right - 300; x += 31)
+				if (document.elementFromPoint(x, y)?.classList.contains('svelte-flow__pane')) return { x, y };
+		return null;
+	});
+	if (!point) throw new Error('no empty canvas point on screen');
+	return point;
+}
+
+/** Runs `n` units of fixed CPU work in the page; with no `n`, calibrates `n` to take about 20 ms. */
+function busyWork(page: Page, n?: number) {
+	return page.evaluate((units) => {
+		const run = (count: number) => {
+			let acc = 0;
+			for (let c = 0; c < count; c++) for (let k = 0; k < 1000; k++) acc += Math.sqrt(k + c);
+			(window as unknown as { __sink: number }).__sink = acc;
+		};
+		if (units === undefined) {
+			let count = 1;
+			while (true) {
+				const t = performance.now();
+				run(count);
+				const ms = performance.now() - t;
+				if (ms >= 20) return { n: count, ms };
+				count = Math.ceil(count * Math.max(1.2, 22 / Math.max(ms, 0.1)));
+			}
+		}
+		const t = performance.now();
+		run(units);
+		return { n: units, ms: performance.now() - t };
+	}, n);
+}
+
+/** The fastest of three runs, so a JIT warm-up or a stray GC pause does not skew the comparison. */
+async function fastest(page: Page, n: number) {
+	let best = await busyWork(page, n);
+	for (let i = 0; i < 2; i++) {
+		const run = await busyWork(page, n);
+		if (run.ms < best.ms) best = run;
+	}
+	return best;
 }
 
 async function fit(page: Page) {
@@ -70,11 +119,22 @@ test('50 nodes, 3 concurrent streams, continuous pan: p95 ≤ 20 ms at 4× CPU',
 		await expect(page.locator(`article[data-node-id="${id}"]`)).toHaveAttribute('data-status', 'streaming');
 	}
 
+	// Canary: the frame samples are capped by vsync, so they cannot show that throttling took effect.
+	// Time the same fixed work before and after enabling it.
+	const calibrated = await busyWork(page);
+	const baseline = await fastest(page, calibrated.n);
 	const cdp = await page.context().newCDPSession(page);
 	await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+	const throttled = await fastest(page, calibrated.n);
+	expect(throttled.ms / baseline.ms, `CPU throttling must be in effect (${baseline.ms} ms -> ${throttled.ms} ms)`).toBeGreaterThanOrEqual(2.5);
+
+	const nodePosition = (id: string) => page.locator(`.svelte-flow__node[data-id="${id}"]`).evaluate((el) => (el as HTMLElement).style.transform);
+	const positionsBefore = await Promise.all(streaming.map(nodePosition));
+	const viewportBefore = await viewport(page);
+	const start = await emptyCanvasPoint(page);
 
 	const measuring = page.evaluate(
-		(ms) =>
+		({ ms, ids }) =>
 			new Promise<Sample>((resolve) => {
 				const deltas: number[] = [];
 				const longs: number[] = [];
@@ -85,7 +145,7 @@ test('50 nodes, 3 concurrent streams, continuous pan: p95 ≤ 20 ms at 4× CPU',
 					for (const r of records) {
 						const el = r.target.nodeType === 1 ? (r.target as Element) : r.target.parentElement;
 						const card = el?.closest('[data-node-id]') as HTMLElement | null;
-						if (card) mutated.add(card.dataset.nodeId!);
+						if (card && ids.includes(card.dataset.nodeId!)) mutated.add(card.dataset.nodeId!);
 					}
 				});
 				mo.observe(document.querySelector('.svelte-flow__nodes')!, { subtree: true, childList: true, characterData: true });
@@ -103,22 +163,27 @@ test('50 nodes, 3 concurrent streams, continuous pan: p95 ≤ 20 ms at 4× CPU',
 				};
 				requestAnimationFrame(tick);
 			}),
-		5000
+		{ ms: WINDOW_MS, ids: streaming }
 	);
 
-	const box = (await page.locator('.svelte-flow__pane').boundingBox())!;
-	const cx = box.x + box.width / 2;
-	const cy = box.y + box.height / 2;
-	await page.mouse.move(cx, cy);
+	// Pan from a bare-pane point, and keep the mouse moving until the sample window closes, so that every
+	// measured frame is a frame of the pan.
+	let done = false;
+	void measuring.then(() => (done = true));
+	await page.mouse.move(start.x, start.y);
 	await page.mouse.down();
-	for (let i = 0; i < 120; i++) {
-		await page.mouse.move(cx + Math.sin(i / 8) * 90, cy + Math.cos(i / 11) * 50);
+	for (let i = 0; !done; i++) {
+		await page.mouse.move(start.x + Math.sin(i / 8) * 90, start.y + Math.cos(i / 11) * 50);
 		await page.waitForTimeout(16);
 	}
 	await page.mouse.up();
 
 	const sample = await measuring;
-	console.log(JSON.stringify(sample));
-	expect(sample.cardsMutated, 'the streaming cards must be on screen').toBeGreaterThanOrEqual(3);
+	console.log(JSON.stringify({ ...sample, canaryMs: { baseline: Math.round(baseline.ms * 10) / 10, throttled: Math.round(throttled.ms * 10) / 10 } }));
+
+	// It was a viewport pan, not a node drag.
+	expect(await viewport(page), 'the viewport must have panned').not.toEqual(viewportBefore);
+	expect(await Promise.all(streaming.map(nodePosition)), 'no node may have been dragged').toEqual(positionsBefore);
+	expect(sample.cardsMutated, 'all three streaming cards must be on screen and updating').toBeGreaterThanOrEqual(3);
 	expect(sample.p95).toBeLessThanOrEqual(20);
 });
