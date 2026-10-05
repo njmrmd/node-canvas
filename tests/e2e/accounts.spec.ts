@@ -39,6 +39,10 @@ test('a taken email is refused without revealing anything else', async ({ page, 
 test('a protected page sends you to sign in, then back', async ({ page, context }) => {
 	const address = email('next');
 	await signUp(page, address);
+	// The click returns before the server has hashed the password and created the
+	// account. Navigating away now abandons the sign-up mid-flight; the redirect to
+	// /keys is the signal that the account exists.
+	await expect(page).toHaveURL(/\/keys$/);
 	await context.clearCookies();
 	await page.goto('/canvas');
 	await expect(page).toHaveURL(/\/sign-in\?next=%2Fcanvas$/);
