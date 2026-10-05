@@ -7,6 +7,7 @@
 	import EmptyState from './EmptyState.svelte';
 	import NodeCard from './NodeCard.svelte';
 
+	let { onpick }: { onpick?: (prompt: string) => void } = $props();
 	const store = useCanvas();
 	const flow = useSvelteFlow();
 	const nodeTypes = { card: NodeCard };
@@ -99,7 +100,7 @@
 		<Controls showLock={false} />
 		<MiniMap pannable zoomable bgColor="var(--cy-paper-deep)" />
 	</SvelteFlow>
-	{#if store.graph.nodeIds.length === 0}<EmptyState variant="empty" />{/if}
+	{#if store.graph.nodeIds.length === 0}<EmptyState variant="empty" {onpick} />{/if}
 </div>
 
 <style>

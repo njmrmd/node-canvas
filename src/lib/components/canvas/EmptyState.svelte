@@ -2,7 +2,8 @@
 	import { resolve } from '$app/paths';
 	import { copy } from '$lib/canvas/copy';
 
-	let { variant }: { variant: 'no-key' | 'empty' } = $props();
+	let { variant, onpick }: { variant: 'no-key' | 'empty'; onpick?: (prompt: string) => void } = $props();
+	const starters = [copy('starter.1'), copy('starter.2'), copy('starter.3')];
 </script>
 
 <div class="empty" class:overlay={variant === 'empty'}>
@@ -13,6 +14,11 @@
 	{:else}
 		<h2>{copy('empty.headline')}</h2>
 		<p>{copy('empty.sub')}</p>
+		{#if onpick}
+			<div class="starters">
+				{#each starters as s (s)}<button type="button" onclick={() => onpick(s)}>{s}</button>{/each}
+			</div>
+		{/if}
 	{/if}
 </div>
 
@@ -37,6 +43,22 @@
 	p {
 		margin: 0 0 var(--space-6);
 		opacity: 0.8;
+	}
+	.starters {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		justify-content: center;
+		pointer-events: auto;
+	}
+	.starters button {
+		font: var(--text-sm);
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius-full);
+		border: 1px solid var(--cy-paper-edge);
+		background: var(--cy-paper-lift);
+		color: var(--cy-ink);
+		cursor: pointer;
 	}
 	.cta {
 		display: inline-block;

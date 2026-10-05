@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { useSvelteFlow } from '@xyflow/svelte';
+	import { copy } from '$lib/canvas/copy';
 	import { useCanvas } from '$lib/canvas/store.svelte';
 	import type { ModelSpec } from '$lib/shared/models';
 
@@ -17,6 +18,9 @@
 			{#each models as m (m.id)}<option value={m.id}>{m.label}</option>{/each}
 		</select>
 	</label>
+	{#if store.rateLimit}
+		<span class="chip">{copy('limit.chip', { used: store.rateLimit.limit - store.rateLimit.remaining, total: store.rateLimit.limit })}</span>
+	{/if}
 	<div class="spacer"></div>
 	<button type="button" onclick={() => store.tidy()}>Tidy</button>
 	<button type="button" onclick={() => flow.fitView({ duration: 250 })}>Fit</button>
@@ -56,6 +60,10 @@
 	}
 	button {
 		cursor: pointer;
+	}
+	.chip {
+		font: var(--text-xs);
+		color: var(--cy-ink-soft);
 	}
 	.spacer {
 		flex: 1;
