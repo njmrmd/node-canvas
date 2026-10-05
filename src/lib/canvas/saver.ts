@@ -22,7 +22,13 @@ export const KEEPALIVE_BYTES = 60 * 1024;
 
 const encoder = new TextEncoder();
 const bytes = (value: unknown) => encoder.encode(JSON.stringify(value)).byteLength;
-const isNetwork = (error: unknown) => (error as { code?: unknown } | null)?.code === 'network';
+
+/** How one request went. `network` and `limited` stop the flush; `refused` isolates the request's nodes. */
+type Attempt = 'saved' | 'refused' | 'network' | 'limited';
+const classify = (error: unknown): Attempt => {
+	const code = (error as { code?: unknown } | null)?.code;
+	return code === 'network' ? 'network' : code === 'rate_limited' ? 'limited' : 'refused';
+};
 
 /** Remembers which nodes changed and sends only those, parents first. */
 export class Saver {
@@ -31,6 +37,8 @@ export class Saver {
 	private inFlight: Promise<void> | null = null;
 	private inFlightIds = new Set<string>();
 	private inFlightView = false;
+	/** Nodes the server refused when sent alone: sent one per request until it takes them. */
+	private suspects = new Set<string>();
 	private timer: ReturnType<typeof setInterval> | null = null;
 
 	constructor(
@@ -64,19 +72,25 @@ export class Saver {
 		this.timer = null;
 	}
 
-	/** The requests a flush would send now. Vanished nodes are dropped from the dirty set. */
+	/**
+	 * The requests a flush would send now: parents first, the view with the last batch, then any node
+	 * the server refused before, alone, so it cannot sink a batch again. Vanished nodes are dropped.
+	 */
 	batches(): SaveBody[] {
 		const nodes: NodeWire[] = [];
 		for (const id of this.dirty) {
 			const n = this.deps.getNode(id);
 			if (n) nodes.push(n);
-			else this.dirty.delete(id);
+			else {
+				this.dirty.delete(id);
+				this.suspects.delete(id);
+			}
 		}
 		nodes.sort((a, b) => this.deps.depthOf(a.id) - this.deps.depthOf(b.id) || a.createdAt - b.createdAt);
 		const out: SaveBody[] = [];
 		let current: SaveBody = { upserts: [] };
 		let size = bytes(current);
-		for (const n of nodes) {
+		for (const n of nodes.filter((n) => !this.suspects.has(n.id))) {
 			const s = bytes(n) + 1;
 			if (current.upserts.length > 0 && (current.upserts.length >= MAX_BATCH_NODES || size + s > MAX_BATCH_BYTES)) {
 				out.push(current);
@@ -88,6 +102,7 @@ export class Saver {
 		}
 		if (this.viewDirty) current.view = this.deps.getView();
 		if (current.upserts.length > 0 || current.view) out.push(current);
+		for (const n of nodes) if (this.suspects.has(n.id)) out.push({ upserts: [n] });
 		return out;
 	}
 
@@ -101,32 +116,37 @@ export class Saver {
 
 	private async run(): Promise<void> {
 		try {
-			const batches = this.batches();
+			const queue = this.batches();
 			// Move to in-flight before clearing dirty
-			for (const b of batches) b.upserts.forEach((n) => this.inFlightIds.add(n.id));
-			if (batches.some((b) => b.view)) this.inFlightView = true;
+			for (const b of queue) b.upserts.forEach((n) => this.inFlightIds.add(n.id));
+			if (queue.some((b) => b.view)) this.inFlightView = true;
 			this.dirty.clear();
 			this.viewDirty = false;
 
-			for (let i = 0; i < batches.length; i++) {
-				try {
-					await this.deps.put(batches[i], false);
-					// Remove successfully sent ids from in-flight
-					batches[i].upserts.forEach((n) => this.inFlightIds.delete(n.id));
-					if (batches[i].view) this.inFlightView = false;
-				} catch (error) {
-					// Everything not yet confirmed goes back to dirty; changes made meanwhile are already there.
-					for (const b of batches.slice(i)) {
-						b.upserts.forEach((n) => this.dirty.add(n.id));
-						if (b.view) this.viewDirty = true;
-					}
-					this.inFlightIds.clear();
-					this.inFlightView = false;
-					if (!isNetwork(error)) this.deps.onError(this.deps.failureMessage);
-					return;
+			let failed = false; // something the server refused or rate limited: the banner goes up
+			while (queue.length > 0) {
+				const body = queue.shift()!;
+				const result = await this.attempt(body);
+				if (result === 'saved') continue;
+				if (result === 'refused' && body.upserts.length + (body.view ? 1 : 0) > 1) {
+					// Find the node(s) the server will not take: one per request, still parents first, then the view.
+					queue.unshift(...body.upserts.map((n) => ({ upserts: [n] })), ...(body.view ? [{ upserts: [], view: body.view }] : []));
+					continue;
 				}
+				// Not confirmed goes back to dirty; changes made meanwhile are already there.
+				this.requeue([body]);
+				if (result === 'refused') {
+					body.upserts.forEach((n) => this.suspects.add(n.id));
+					failed = true;
+					continue;
+				}
+				// Offline or rate limited: sending more now only fails the same way.
+				this.requeue(queue);
+				if (result === 'network' && !failed) return;
+				failed = true;
+				break;
 			}
-			this.deps.onError(null);
+			this.deps.onError(failed ? this.deps.failureMessage : null);
 		} catch {
 			// Unexpected error in deps (e.g., getView throws)
 			// Put all batched ids back to dirty
@@ -138,6 +158,33 @@ export class Saver {
 				this.deps.onError(this.deps.failureMessage);
 			} catch {
 				// Ignore errors from onError itself
+			}
+		}
+	}
+
+	private async attempt(body: SaveBody): Promise<Attempt> {
+		try {
+			await this.deps.put(body, false);
+		} catch (error) {
+			return classify(error);
+		}
+		body.upserts.forEach((n) => {
+			this.inFlightIds.delete(n.id);
+			this.suspects.delete(n.id);
+		});
+		if (body.view) this.inFlightView = false;
+		return 'saved';
+	}
+
+	private requeue(bodies: SaveBody[]): void {
+		for (const b of bodies) {
+			b.upserts.forEach((n) => {
+				this.dirty.add(n.id);
+				this.inFlightIds.delete(n.id);
+			});
+			if (b.view) {
+				this.viewDirty = true;
+				this.inFlightView = false;
 			}
 		}
 	}
@@ -160,7 +207,8 @@ export class Saver {
 		const body: SaveBody = { upserts: [], ...(this.viewDirty || this.inFlightView ? { view: this.deps.getView() } : {}) };
 		let size = bytes(body);
 		const included = new Set<string>();
-		const skipped = new Set<string>();
+		// A node the server refused would sink the whole unload save, and its descendants with it.
+		const skipped = new Set([...this.suspects].filter((id) => candidates.has(id)));
 
 		// Walk candidates in priority order, then rest
 		const walk = (id: string): string[] => {

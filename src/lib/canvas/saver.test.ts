@@ -13,8 +13,11 @@ function node(id: string, extra: Partial<NodeWire> = {}): NodeWire {
 
 function harness(nodes: Record<string, NodeWire>, depth: Record<string, number> = {}) {
 	const sent: { body: SaveBody; keepalive: boolean }[] = [];
+	const attempts: SaveBody[] = [];
 	const errors: (string | null)[] = [];
+	const refused = new Set<string>();
 	let failNext: unknown = null;
+	let failTimes = 0;
 	let online = true;
 	const view: ViewWire = { viewport: { x: 0, y: 0, zoom: 1 }, targetNodeId: null };
 	const deps: SaverDeps = {
@@ -22,11 +25,12 @@ function harness(nodes: Record<string, NodeWire>, depth: Record<string, number> 
 		depthOf: (id) => depth[id] ?? 0,
 		getView: () => view,
 		put: async (body, keepalive) => {
-			if (failNext) {
-				const e = failNext;
-				failNext = null;
-				throw e;
+			attempts.push(body);
+			if (failTimes > 0) {
+				failTimes -= 1;
+				throw failNext;
 			}
+			if (body.upserts.some((n) => refused.has(n.id))) throw { code: 'invalid_request' };
 			sent.push({ body, keepalive });
 			return { rejected: [] };
 		},
@@ -36,7 +40,21 @@ function harness(nodes: Record<string, NodeWire>, depth: Record<string, number> 
 		failureMessage: 'not saved'
 	};
 	const saver = new Saver(deps, { setInterval: (() => 0) as unknown as typeof setInterval, clearInterval: (() => {}) as unknown as typeof clearInterval });
-	return { saver, sent, errors, fail: (e: unknown) => (failNext = e), setOnline: (v: boolean) => (online = v) };
+	return {
+		saver,
+		sent,
+		attempts,
+		errors,
+		/** The next `times` requests fail with `e`. */
+		fail: (e: unknown, times = 1) => {
+			failNext = e;
+			failTimes = times;
+		},
+		/** The server refuses every request that carries this node, until `allow`. */
+		refuse: (id: string) => refused.add(id),
+		allow: (id: string) => refused.delete(id),
+		setOnline: (v: boolean) => (online = v)
+	};
 }
 
 describe('Saver', () => {
@@ -91,6 +109,77 @@ describe('Saver', () => {
 		await h.saver.flush();
 		assert.deepEqual(h.errors, ['not saved', null]);
 		assert.equal(h.saver.pending, 0);
+	});
+
+	it('a refused node does not block the others', async () => {
+		const h = harness({ p: node('p'), bad: node('bad', { parentId: 'p' }), c: node('c', { parentId: 'p' }), q: node('q') }, { p: 1, bad: 2, c: 2, q: 1 });
+		h.refuse('bad');
+		['c', 'bad', 'q', 'p'].forEach((id) => h.saver.markNode(id));
+		h.saver.markView();
+		await h.saver.flush();
+		const saved = h.sent.flatMap((s) => s.body.upserts.map((n) => n.id));
+		assert.deepEqual(saved.sort(), ['c', 'p', 'q']);
+		assert.ok(h.sent.some((s) => s.body.view), 'the view saved too');
+		// Retried one node per request, parents before children.
+		const singles = h.attempts.slice(1).flatMap((b) => b.upserts.map((n) => n.id));
+		assert.ok(singles.indexOf('p') < singles.indexOf('c') && singles.indexOf('p') < singles.indexOf('bad'));
+		assert.ok(h.attempts.slice(1).every((b) => b.upserts.length <= 1));
+		assert.equal(h.saver.pending, 1);
+		assert.equal(h.errors.at(-1), 'not saved');
+
+		// Next flush: the healthy change goes in a batch of its own; the refused node is retried alone.
+		h.attempts.length = 0;
+		h.saver.markNode('q');
+		await h.saver.flush();
+		assert.equal(h.attempts.length, 2);
+		assert.deepEqual(h.attempts.map((b) => b.upserts.map((n) => n.id)), [['q'], ['bad']]);
+		assert.equal(h.saver.pending, 1);
+		assert.equal(h.errors.at(-1), 'not saved');
+
+		// Once the server takes it, nothing is left and the banner clears.
+		h.allow('bad');
+		await h.saver.flush();
+		assert.equal(h.saver.pending, 0);
+		assert.equal(h.errors.at(-1), null);
+	});
+
+	it('stops retrying singly when the network drops, keeping the rest dirty', async () => {
+		const h = harness({ a: node('a'), bad: node('bad'), b: node('b') });
+		h.refuse('bad');
+		['a', 'bad', 'b'].forEach((id) => h.saver.markNode(id));
+		h.saver.markView();
+		(h.saver as unknown as { deps: SaverDeps }).deps.put = async (body) => {
+			h.attempts.push(body);
+			if (h.attempts.length === 1) throw { code: 'invalid_request' };
+			throw { code: 'network' };
+		};
+		await h.saver.flush();
+		assert.equal(h.attempts.length, 2);
+		assert.equal(h.saver.pending, 4);
+		assert.deepEqual(h.errors, []);
+	});
+
+	it('stops retrying singly when rate limited, with the banner up', async () => {
+		const h = harness({ a: node('a'), b: node('b'), c: node('c') });
+		['a', 'b', 'c'].forEach((id) => h.saver.markNode(id));
+		h.fail({ code: 'rate_limited' }, 10);
+		await h.saver.flush();
+		assert.equal(h.attempts.length, 1);
+		assert.equal(h.saver.pending, 3);
+		assert.deepEqual(h.errors, ['not saved']);
+	});
+
+	it('leaves a refused node out of the keepalive so the rest still saves', async () => {
+		const h = harness({ a: node('a'), bad: node('bad') });
+		h.refuse('bad');
+		h.saver.markNode('a');
+		h.saver.markNode('bad');
+		await h.saver.flush();
+		h.saver.markNode('a');
+		await h.saver.flush({ keepalive: true });
+		const last = h.sent.at(-1)!;
+		assert.equal(last.keepalive, true);
+		assert.deepEqual(last.body.upserts.map((n) => n.id), ['a']);
 	});
 
 	it('keeps ids dirty without a banner on a network failure', async () => {
