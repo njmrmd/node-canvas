@@ -111,7 +111,11 @@ type NodeRow = {
 	updated_ms: string;
 };
 
-/** One transaction: upsert every node the user owns, then the view. */
+/**
+ * One transaction: upsert every node the user owns, then the view. A node that is someone else's, or
+ * whose stored row is newer than this copy (an older in-flight PUT landing after a keepalive save),
+ * is left alone and reported in `rejected`.
+ */
 export async function saveNodes(userId: string, upserts: NodeWire[], view: ViewWire | null): Promise<{ rejected: string[] }> {
 	const rows = upserts.map((n) => ({
 		id: n.id,
@@ -154,7 +158,7 @@ export async function saveNodes(userId: string, upserts: NodeWire[], view: ViewW
 						        position_mode = excluded.position_mode, width = excluded.width, height = excluded.height,
 						        collapsed = excluded.collapsed, body_collapsed = excluded.body_collapsed,
 						        updated_at = excluded.updated_at
-						  where nodes.user_id = excluded.user_id
+						  where nodes.user_id = excluded.user_id and nodes.updated_at <= excluded.updated_at
 						 returning id`,
 						[userId, JSON.stringify(rows)]
 					)
