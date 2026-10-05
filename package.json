@@ -41,6 +41,7 @@
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "0.128.0",
+		"@xyflow/svelte": "1.7.0",
 		"pg": "8.23.0"
 	}
 }
