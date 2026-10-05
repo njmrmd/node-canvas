@@ -34,6 +34,7 @@ test('refuses without a session, from another site, or with a bad model', async 
 	const bad = await page.request.post('/api/chat', { data: { ...body, model: 'gpt-5' } });
 	expect(bad.status()).toBe(400);
 	expect((await bad.json()).error.code).toBe('unsupported_model');
+	expect(bad.headers()['ratelimit-limit']).toBe('60');
 });
 
 test('says no key is configured before streaming', async ({ page, signIn }) => {
@@ -41,4 +42,6 @@ test('says no key is configured before streaming', async ({ page, signIn }) => {
 	const res = await page.request.post('/api/chat', { data: body });
 	expect(res.status()).toBe(409);
 	expect((await res.json()).error.code).toBe('no_key_configured');
+	// A pre-stream failure after the limit check still reports the limit.
+	expect(res.headers()['ratelimit-limit']).toBe('60');
 });

@@ -22,38 +22,57 @@ export const POST = withRoute('chat', async ({ request, locals }) => {
 	const user = locals.user;
 	if (!user) throw new ApiError('unauthenticated', 'Please sign in to continue.');
 	const limit = await enforce(POLICIES.chat, userSubject(user.id));
-	const { model, messages, system } = parseChatBody(await readJsonBody(request, { maxBytes: MAX_BODY_BYTES }));
-	const apiKey = await getDecryptedKey(user.id);
+	// From here on every response, including a pre-stream failure, carries the
+	// caller's RateLimit-* headers. 401 and 403 precede the limit, so they don't.
+	try {
+		const { model, messages, system } = parseChatBody(await readJsonBody(request, { maxBytes: MAX_BODY_BYTES }));
+		const apiKey = await getDecryptedKey(user.id);
 
-	// Abort upstream when the browser leaves, so a closed tab stops spending the user's tokens.
-	const controller = new AbortController();
-	request.signal.addEventListener('abort', () => controller.abort());
-	const encoder = new TextEncoder();
+		// Abort upstream when the browser leaves, so a closed tab stops spending the user's tokens.
+		const controller = new AbortController();
+		request.signal.addEventListener('abort', () => controller.abort());
+		const encoder = new TextEncoder();
+		let closed = false;
 
-	const stream = new ReadableStream<Uint8Array>({
-		async start(out) {
-			try {
-				for await (const event of streamChat({ apiKey, model, messages, system, signal: controller.signal })) {
-					out.enqueue(encoder.encode(frame(event)));
+		const stream = new ReadableStream<Uint8Array>({
+			async start(out) {
+				try {
+					for await (const event of streamChat({ apiKey, model, messages, system, signal: controller.signal })) {
+						if (closed) break;
+						out.enqueue(encoder.encode(frame(event)));
+					}
+				} catch (error) {
+					if (!closed) {
+						console.error('[chat] stream failed:', error instanceof Error ? error.name : 'non-Error throw');
+						out.enqueue(
+							encoder.encode(frame({ type: 'error', code: 'internal_error', message: 'The response stopped unexpectedly. Please try again.' }))
+						);
+					}
+				} finally {
+					if (!closed) out.close();
 				}
-			} catch (error) {
-				console.error('[chat] stream failed:', error instanceof Error ? error.name : 'non-Error throw');
-				out.enqueue(encoder.encode(frame({ type: 'error', code: 'internal_error', message: 'The response stopped unexpectedly. Please try again.' })));
-			} finally {
-				out.close();
+			},
+			cancel() {
+				closed = true;
+				controller.abort();
 			}
-		},
-		cancel() {
-			controller.abort();
-		}
-	});
+		});
 
-	return new Response(stream, {
-		headers: {
-			'Content-Type': 'text/event-stream; charset=utf-8',
-			'Cache-Control': 'no-store, no-transform',
-			'X-Accel-Buffering': 'no',
-			...rateLimitHeaders(limit)
+		return new Response(stream, {
+			headers: {
+				'Content-Type': 'text/event-stream; charset=utf-8',
+				'Cache-Control': 'no-store, no-transform',
+				'X-Accel-Buffering': 'no',
+				...rateLimitHeaders(limit)
+			}
+		});
+	} catch (error) {
+		if (error instanceof ApiError) {
+			throw new ApiError(error.code, error.message, {
+				fields: error.fields,
+				headers: { ...error.headers, ...rateLimitHeaders(limit) }
+			});
 		}
-	});
+		throw error;
+	}
 });

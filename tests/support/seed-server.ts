@@ -6,6 +6,7 @@ import { createSession } from '../../src/lib/server/auth/session';
 import { hashPassword } from '../../src/lib/server/crypto/password';
 import { query, queryOne } from '../../src/lib/server/db';
 import { saveKey } from '../../src/lib/server/keys';
+import { POLICIES } from '../../src/lib/server/rate-limit';
 import { GOOD_KEY } from './fake-anthropic';
 
 export type SeedRequest = { key?: boolean; nodes?: number; chatUsed?: number };
@@ -31,9 +32,9 @@ export async function seedUser({ key = true, nodes = 0, chatUsed = 0 }: SeedRequ
 		ids.push(id);
 	}
 	if (chatUsed > 0) {
-		const windowMs = 3600_000;
+		const windowMs = POLICIES.chat.windowSeconds * 1000;
 		await query('insert into rate_limits (bucket, subject, window_start, count) values ($1, $2, $3, $4)', [
-			'chat',
+			POLICIES.chat.bucket,
 			`user:${userId}`,
 			new Date(Math.floor(Date.now() / windowMs) * windowMs),
 			chatUsed
