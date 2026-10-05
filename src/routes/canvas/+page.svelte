@@ -1,10 +1,16 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
-	import Shell from '$lib/components/Shell.svelte';
+	import { SvelteFlowProvider } from '@xyflow/svelte';
+	import CanvasApp from '$lib/components/canvas/CanvasApp.svelte';
+	import EmptyState from '$lib/components/canvas/EmptyState.svelte';
+	import type { PageData } from './$types';
+
+	let { data }: { data: PageData } = $props();
 </script>
 
 <svelte:head><title>Canvas · node-canvas</title></svelte:head>
-<Shell>
-	<h1>Canvas</h1>
-	<p>The canvas arrives in Plan 2. <a href={resolve('/keys')}>Manage your key</a></p>
-</Shell>
+
+{#if data.hasKey}
+	<SvelteFlowProvider><CanvasApp {data} /></SvelteFlowProvider>
+{:else}
+	<EmptyState variant="no-key" />
+{/if}
