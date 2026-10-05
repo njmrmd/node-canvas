@@ -20,6 +20,7 @@ pnpm dev
 
 ```bash
 pnpm check && pnpm lint && pnpm test && pnpm test:db && pnpm test:e2e
+pnpm test:perf   # canvas performance budget (local only)
 ```
 
 ## How a key is protected

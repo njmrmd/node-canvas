@@ -18,6 +18,7 @@
 		"test": "node --import tsx --test \"src/**/*.test.ts\"",
 		"test:db": "node scripts/test-db.mjs",
 		"test:e2e": "vite build && playwright test",
+		"test:perf": "vite build && PERF=1 playwright test --project=perf",
 		"db:migrate": "node --env-file-if-exists=.env scripts/migrate.mjs"
 	},
 	"devDependencies": {

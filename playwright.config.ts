@@ -16,5 +16,11 @@ export default defineConfig({
 		timeout: 180_000,
 		gracefulShutdown: { signal: 'SIGTERM', timeout: 10_000 }
 	},
-	projects: [{ name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }]
+	projects: [
+		{ name: 'desktop', testIgnore: /perf\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
+		// Machine-dependent, so not part of CI: run with `pnpm test:perf`.
+		...(process.env.PERF
+			? [{ name: 'perf', testMatch: /perf\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }]
+			: [])
+	]
 });
