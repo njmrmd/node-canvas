@@ -2,7 +2,7 @@
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
 	import { copy } from '$lib/canvas/copy';
 	import { presentError } from '$lib/canvas/errors';
-	import { canBranchFrom } from '$lib/canvas/graph';
+	import { canBranchFrom, canContinue, canRegenerate, canRetry, CONTINUE_PROMPT } from '$lib/canvas/graph';
 	import { useCanvas } from '$lib/canvas/store.svelte';
 	import Markdown from './Markdown.svelte';
 
@@ -20,6 +20,13 @@
 		if (failure) return failure.category;
 		return '';
 	});
+	// When each applies is graph.ts's call. Only a failed card pays for the child lookup Retry needs.
+	const retryable = $derived(node?.status === 'error' && canRetry(store.graph, id));
+	const continuable = $derived(!!node && canContinue(node));
+	const regenerable = $derived(
+		!!node && (node.status === 'interrupted' || (node.status === 'error' && !retryable)) && canRegenerate(store.graph, id)
+	);
+	const blocked = $derived(store.streamBlockedReason);
 
 	// A streaming body follows its newest line unless the reader scrolled up.
 	let body = $state<HTMLDivElement>();
@@ -41,7 +48,11 @@
 	>
 		<Handle type="target" position={Position.Top} isConnectable={false} />
 		<header>
-			<h3 class="prompt" title={node.prompt}>{node.prompt}</h3>
+			{#if node.prompt === CONTINUE_PROMPT}
+				<h3 class="prompt continued">{copy('node.continuedFrom')}</h3>
+			{:else}
+				<h3 class="prompt" title={node.prompt}>{node.prompt}</h3>
+			{/if}
 			{#if status}<span class="status">{status}</span>{/if}
 			{#if node.status === 'streaming'}
 				<button class="nodrag" type="button" onclick={() => store.stop(id)}>Stop</button>
@@ -55,6 +66,13 @@
 					: copy(node.status === 'error' || node.status === 'interrupted' ? 'branch.failed' : 'branch.disabled')}
 				disabled={!canBranchFrom(node)}
 				onclick={() => store.branch(id)}>{copy('node.action.branch')}</button
+			>
+			<button
+				class="nodrag icon"
+				type="button"
+				aria-label={copy('node.action.delete')}
+				title={copy('node.action.delete')}
+				onclick={() => store.remove(id)}><span aria-hidden="true">✕</span></button
 			>
 		</header>
 		{#if node.thinking}
@@ -78,6 +96,25 @@
 			{/if}
 			{#if failure}<p class="error" role="status">{failure.message}</p>{/if}
 		</div>
+		{#if retryable || continuable || regenerable}
+			<footer class="actions">
+				{#if retryable}
+					<button class="nodrag primary" type="button" disabled={!!blocked} title={blocked ?? undefined} onclick={() => store.retry(id)}
+						>{copy('node.action.retry')}</button
+					>
+				{/if}
+				{#if continuable}
+					<button class="nodrag primary" type="button" disabled={!!blocked} title={blocked ?? undefined} onclick={() => store.continueReply(id)}
+						>{copy('node.action.continue')}</button
+					>
+				{/if}
+				{#if regenerable}
+					<button class="nodrag" type="button" disabled={!!blocked} title={blocked ?? undefined} onclick={() => store.regenerate(id)}
+						>{copy('node.action.regenerate')}</button
+					>
+				{/if}
+			</footer>
+		{/if}
 		<Handle type="source" position={Position.Bottom} isConnectable={false} />
 	</article>
 {/if}
@@ -111,6 +148,10 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	.continued {
+		font-style: italic;
+		color: var(--cy-ink-soft);
+	}
 	.status {
 		font: var(--text-xs);
 		color: var(--cy-ink-soft);
@@ -128,6 +169,14 @@
 	button:disabled {
 		opacity: 0.45;
 		cursor: default;
+	}
+	.icon {
+		padding: 0 var(--space-2);
+	}
+	.primary {
+		background: var(--cy-gold);
+		color: var(--cy-paper-deep);
+		border-color: transparent;
 	}
 	.thinking {
 		padding: var(--space-2) var(--space-3) 0;
@@ -148,5 +197,10 @@
 	.error {
 		margin: var(--space-2) 0 0;
 		color: var(--danger);
+	}
+	.actions {
+		display: flex;
+		gap: var(--space-2);
+		padding: 0 var(--space-3) var(--space-3);
 	}
 </style>

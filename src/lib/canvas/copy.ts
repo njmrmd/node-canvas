@@ -138,6 +138,8 @@ const PORT_RULED = {
    * finish, so `branch.disabled` would promise something that cannot happen. */
   "branch.failed":
     "This reply didn't finish. Branch from another card, or start a new conversation.",
+  /* Plan 3: the card's delete button (the old app's hard-coded label). */
+  "node.action.delete": "Delete",
 } as const;
 
 export const COPY = {

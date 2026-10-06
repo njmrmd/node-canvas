@@ -6,6 +6,7 @@
 	import { panToLowerThird } from '$lib/canvas/viewport';
 	import EmptyState from './EmptyState.svelte';
 	import NodeCard from './NodeCard.svelte';
+	import UndoToast from './UndoToast.svelte';
 
 	let { onpick }: { onpick?: (prompt: string) => void } = $props();
 	const store = useCanvas();
@@ -102,6 +103,7 @@
 		<MiniMap pannable zoomable bgColor="var(--cy-paper-deep)" />
 	</SvelteFlow>
 	{#if store.graph.nodeIds.length === 0}<EmptyState variant="empty" {onpick} />{/if}
+	<UndoToast />
 </div>
 
 <style>

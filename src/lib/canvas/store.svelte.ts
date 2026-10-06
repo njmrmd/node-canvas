@@ -7,18 +7,33 @@ import {
 	appendText,
 	appendThinking,
 	canBranchFrom,
+	canContinue,
+	canRegenerate,
+	canRetry,
 	checkBranchSize,
 	completeNode,
+	CONTINUE_PROMPT,
+	extractBranch,
 	failNode,
 	interruptNode,
 	moveNode,
 	pathToRoot,
+	restoreBranch,
 	settleOrphanedStreams,
 	startStreaming,
 	toMessages,
-	type ConversationGraph
+	type ConversationGraph,
+	type ConversationNode
 } from './graph';
-import { autoPlaceOnCreate, centeredRootPosition, NODE_WIDTH_DESKTOP, reflowChildrenOnCreate, tidyLayout, type NodeHeights } from './layout';
+import {
+	autoPlaceOnCreate,
+	centeredRootPosition,
+	NODE_WIDTH_DESKTOP,
+	nodeWidthsFrom,
+	reflowChildrenOnCreate,
+	tidyLayout,
+	type NodeHeights
+} from './layout';
 import { fromWire, toWire, type NodeWire, type ViewWire } from './node-wire';
 import { Saver, type SaveBody } from './saver';
 import { streamChat } from './stream';
@@ -30,9 +45,24 @@ import type { ChatStreamEvent } from '../shared/chat-types';
 type Point = { x: number; y: number };
 export type CanvasInit = { nodes: NodeWire[]; view: ViewWire | null; model: string };
 
+/** How long a delete can be undone (the old app's DELETE_UNDO_MS). One level only. */
+export const UNDO_MS = 8000;
+
+/** The last delete, for Undo. */
+export type UndoState = {
+	rootId: string;
+	/** The removed nodes, parents first. Any that were mid-reply come back stopped, never spinning. */
+	removed: ConversationNode[];
+	/** The composer target the delete cleared, or null when the target was not in the branch. */
+	clearedTarget: string | null;
+};
+
 export class CanvasStore {
 	graph = $state.raw<ConversationGraph>({ nodesById: {}, nodeIds: [] });
-	/** Changed only by Branch, send, New conversation (Plan 3 adds Enter-on-focus and delete). */
+	/**
+	 * Changed only by Branch, send (Continue and Regenerate send too), New conversation, Enter on a
+	 * focused card (Task 10), and deleting the target or an ancestor of it (then null; Undo puts it back).
+	 */
 	target = $state<string | null>(null);
 	following = $state<string | null>(null);
 	layoutVersion = $state(0);
@@ -41,6 +71,7 @@ export class CanvasStore {
 	rateLimit = $state<RateLimitSnapshot | null>(null);
 	saveError = $state<string | null>(null);
 	online = $state(true);
+	undo = $state.raw<UndoState | null>(null);
 
 	readonly width = NODE_WIDTH_DESKTOP;
 	viewport: Viewport;
@@ -52,6 +83,7 @@ export class CanvasStore {
 	private readonly saver: Saver;
 	private readonly cleanups: (() => void)[] = [];
 	private rateLimitReset: ReturnType<typeof setTimeout> | null = null;
+	private undoTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(init: CanvasInit) {
 		const loaded = fromWire(init.nodes);
@@ -110,6 +142,8 @@ export class CanvasStore {
 		this.saver.stop();
 		if (this.rateLimitReset !== null) clearTimeout(this.rateLimitReset);
 		this.rateLimitReset = null;
+		if (this.undoTimer !== null) clearTimeout(this.undoTimer);
+		this.undoTimer = null;
 	}
 
 	/** Replace the graph and mark every node object that changed. */
@@ -129,9 +163,16 @@ export class CanvasStore {
 		return this.rateLimit !== null && this.rateLimit.remaining === 0;
 	}
 
-	get sendBlockedReason(): string | null {
+	/** Why nothing can be sent right now, whatever the target: offline, or out of messages. */
+	get streamBlockedReason(): string | null {
 		if (!this.online) return copy('composer.placeholder.offline');
 		if (this.limitReached) return copy('composer.placeholder.rateLimited');
+		return null;
+	}
+
+	get sendBlockedReason(): string | null {
+		const blocked = this.streamBlockedReason;
+		if (blocked) return blocked;
 		const t = this.target ? this.graph.nodesById[this.target] : null;
 		if (t && !canBranchFrom(t)) return copy(t.status === 'error' || t.status === 'interrupted' ? 'branch.failed' : 'branch.disabled');
 		return null;
@@ -171,15 +212,49 @@ export class CanvasStore {
 		const text = prompt.trim();
 		// Over the cap the server refuses to save the node, so none is created; the composer says why.
 		if (!text || text.length > MAX_MESSAGE_CHARS || this.sendBlockedReason) return false;
-		const parentId = this.target;
+		this.createAndStream(this.target, text);
+		return true;
+	}
+
+	/** Continue: the rest of a stopped reply, asked for in a new card below it. */
+	continueReply(id: string): void {
+		const node = this.graph.nodesById[id];
+		if (!node || !canContinue(node) || this.streamBlockedReason) return;
+		this.createAndStream(id, CONTINUE_PROMPT);
+	}
+
+	/** Regenerate: the same prompt again, in a new card beside this one. */
+	regenerate(id: string): void {
+		if (!canRegenerate(this.graph, id) || this.streamBlockedReason) return;
+		const node = this.graph.nodesById[id];
+		this.createAndStream(node.parentId, node.prompt);
+	}
+
+	/** Retry: the same prompt again, into the same card, replacing the failed reply. */
+	retry(id: string): void {
+		if (!canRetry(this.graph, id) || this.streamBlockedReason) return;
+		const tooLong = checkBranchSize(toMessages(this.graph, id));
+		if (tooLong) {
+			this.commit(failNode(this.graph, id, { code: 'invalid_request', message: tooLong.message }));
+			return;
+		}
+		this.commit(startStreaming(this.graph, id));
+		this.following = id;
+		this.enqueue(id);
+	}
+
+	/** A new card under `parentId` (a new root when null) asking `prompt`, streamed; the composer moves to it. */
+	private createAndStream(parentId: string | null, prompt: string): string {
+		let graph = this.graph;
 		const heights = this.measure();
+		const widths = nodeWidthsFrom(graph, this.width);
 		const position = parentId
-			? autoPlaceOnCreate(this.graph, parentId, this.width, heights)
-			: this.graph.nodeIds.length === 0
+			? autoPlaceOnCreate(graph, parentId, this.width, heights, widths)
+			: graph.nodeIds.length === 0
 				? centeredRootPosition(this.visibleCenter(), this.width)
-				: autoPlaceOnCreate(this.graph, null, this.width, heights);
-		const added = addNode(this.graph, { parentId, prompt: text, position, model: this.model });
-		let graph = parentId ? reflowChildrenOnCreate(added.graph, parentId, this.width, heights) : added.graph;
+				: autoPlaceOnCreate(graph, null, this.width, heights, widths);
+		const added = addNode(graph, { parentId, prompt, position, model: this.model });
+		graph = parentId ? reflowChildrenOnCreate(added.graph, parentId, this.width, heights, widths) : added.graph;
 		const id = added.node.id;
 		const tooLong = checkBranchSize(toMessages(graph, id));
 		graph = tooLong ? failNode(graph, id, { code: 'invalid_request', message: tooLong.message }) : startStreaming(graph, id);
@@ -189,7 +264,7 @@ export class CanvasStore {
 		this.layoutVersion++;
 		this.saver.markView();
 		if (!tooLong) this.enqueue(id);
-		return true;
+		return id;
 	}
 
 	private enqueue(id: string): void {
@@ -231,7 +306,7 @@ export class CanvasStore {
 
 	private settle(id: string, outcome: Outcome): void {
 		const node = this.graph.nodesById[id];
-		if (!node || node.status !== 'streaming') return; // a terminal frame already landed
+		if (!node || node.status !== 'streaming') return; // a terminal frame already landed, or the card is gone
 		if (outcome.kind === 'stopped') this.commit(interruptNode(this.graph, id));
 		else if (outcome.kind === 'timed_out') this.commit(failNode(this.graph, id, TIMEOUT_ERROR));
 		else if (outcome.kind === 'failed') {
@@ -254,6 +329,56 @@ export class CanvasStore {
 	tidy(): void {
 		this.commit(tidyLayout(this.graph, this.width, this.measure()));
 		this.layoutVersion++;
+	}
+
+	/** Deletes a card and everything below it. Undo can bring it back for `UNDO_MS`. */
+	remove(id: string): void {
+		if (!this.graph.nodesById[id]) return;
+		const { graph, removed } = extractBranch(this.graph, id);
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- a lookup local to this call, never observed
+		const gone = new Set(removed.map((n) => n.id));
+		this.commit(graph);
+		// Only now that the graph has lost them, so the stopped streams find nothing to settle.
+		for (const node of removed) if (node.status === 'streaming') this.streams.stop(node.id);
+		const clearedTarget = this.target !== null && gone.has(this.target) ? this.target : null;
+		if (clearedTarget) {
+			this.target = null;
+			this.saver.markView();
+		}
+		if (this.following && gone.has(this.following)) this.following = null;
+		this.saver.markDeleted(id);
+		this.setUndo({
+			rootId: id,
+			removed: removed.map((n) => (n.status === 'streaming' ? { ...n, status: 'interrupted' as const } : n)),
+			clearedTarget
+		});
+		this.layoutVersion++;
+	}
+
+	/** Puts the last deleted branch back, and the composer target with it if nothing else took its place. */
+	undoRemove(): void {
+		const undo = this.undo;
+		if (!undo) return;
+		this.setUndo(null);
+		let graph: ConversationGraph;
+		try {
+			graph = restoreBranch(this.graph, undo.removed);
+		} catch {
+			return; // its parent is gone since: nothing to hang it on
+		}
+		this.saver.cancelDeletion(undo.rootId);
+		this.commit(graph); // every restored node is new to the graph, so every one is saved again, parents first
+		if (undo.clearedTarget && this.target === null) {
+			this.target = undo.clearedTarget;
+			this.saver.markView();
+		}
+		this.layoutVersion++;
+	}
+
+	private setUndo(undo: UndoState | null): void {
+		if (this.undoTimer !== null) clearTimeout(this.undoTimer);
+		this.undoTimer = undo ? setTimeout(() => this.setUndo(null), UNDO_MS) : null;
+		this.undo = undo;
 	}
 }
 
