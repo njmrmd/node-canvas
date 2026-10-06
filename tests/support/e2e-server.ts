@@ -10,9 +10,11 @@ import EmbeddedPostgres from 'embedded-postgres';
 import pg from 'pg';
 import { migrate } from '../../scripts/migrate.mjs';
 import { startFakeAnthropic } from './fake-anthropic';
+import { startSeedServer } from './seed-server';
 
 const APP_PORT = 4173;
 const FAKE_ANTHROPIC_PORT = 4011;
+const SEED_PORT = 4012;
 const PG_PORT = 55433;
 
 /**
@@ -64,6 +66,12 @@ const url = new URL(admin);
 url.pathname = `/${name}`;
 await migrate(url.toString(), { log: () => {} });
 
+const vaultKey = randomBytes(32).toString('base64');
+// The seed server runs the app's own modules in this process.
+process.env.DATABASE_URL = url.toString();
+process.env.KEY_VAULT_ENCRYPTION_KEY = vaultKey;
+const seed = await startSeedServer(SEED_PORT);
+
 const fake = await startFakeAnthropic(FAKE_ANTHROPIC_PORT);
 
 const preview = spawn('pnpm', ['exec', 'vite', 'preview', '--port', String(APP_PORT), '--strictPort'], {
@@ -71,7 +79,7 @@ const preview = spawn('pnpm', ['exec', 'vite', 'preview', '--port', String(APP_P
 	env: {
 		...process.env,
 		DATABASE_URL: url.toString(),
-		KEY_VAULT_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
+		KEY_VAULT_ENCRYPTION_KEY: vaultKey,
 		ANTHROPIC_BASE_URL: fake.url
 	}
 });
@@ -79,6 +87,7 @@ const preview = spawn('pnpm', ['exec', 'vite', 'preview', '--port', String(APP_P
 async function shutdown(code = 0) {
 	preview.kill('SIGTERM');
 	await fake.close();
+	await seed.close();
 	if (server) {
 		await stopServer(server);
 		await rm(dataDir!, { recursive: true, force: true });

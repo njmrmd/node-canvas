@@ -273,7 +273,7 @@ diagnostic logging), `canvas-tokens.css`, and their `*.test.ts` files.
 - **Vercel** — Git integration; preview per PR; production from `main`; repo auto-merge on.
 - **Neon** — via the Vercel integration. Preview and Production use separate `KEY_VAULT_ENCRYPTION_KEY` values. Per-preview database branches: off initially.
 - **Environment** — `DATABASE_URL`, `DATABASE_URL_UNPOOLED` (migrations), `KEY_VAULT_ENCRYPTION_KEY`, optional `APP_ORIGIN`.
-- **Cutover** — once §1's criteria pass on `node-canvas.vercel.app`: move any custom domain to the new project, archive `njmrmd/node-canvas-chat`. No data migration (fresh database).
+- **Cutover** — once §1's criteria pass on `node-canvas-theta.vercel.app`: move any custom domain to the new project, archive `njmrmd/node-canvas-chat`. No data migration (fresh database).
 
 ## 11. Risks
 

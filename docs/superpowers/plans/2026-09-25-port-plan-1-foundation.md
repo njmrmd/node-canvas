@@ -3036,7 +3036,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Create: `.github/workflows/ci.yml`
 
 **Interfaces:**
-- Produces: a required `verify` check on every pull request; a production deployment at `https://node-canvas.vercel.app`.
+- Produces: a required `verify` check on every pull request; a production deployment at `https://node-canvas-theta.vercel.app`.
 
 > **Steps 3–6 are outward-facing and need the user's explicit go-ahead in chat before each one** (creating a public repository, connecting Vercel, provisioning a database, setting secrets). Ask, wait for yes, then act. Never paste a secret value into chat or a command line that is echoed.
 
@@ -3120,25 +3120,31 @@ gh api -X PUT repos/njmrmd/node-canvas/branches/main/protection \
 
 1. Vercel → Add New → Project → import `njmrmd/node-canvas`; accept the SvelteKit defaults; name it `node-canvas`.
 2. Project → Storage → add Neon (Postgres). This creates `DATABASE_URL` and `DATABASE_URL_UNPOOLED` for every environment.
-3. Generate two different vault keys (`openssl rand -base64 32`, twice) and add `KEY_VAULT_ENCRYPTION_KEY` separately for **Production** and for **Preview** (Settings → Environment Variables, marked Sensitive).
+3. Add `KEY_VAULT_ENCRYPTION_KEY` separately for **Production** and for **Preview**, each with its own value, marked Sensitive. If the dashboard refuses with "Failed to verify the project's public environment variable prefix", use the CLI — the value is generated inline and never printed (press Enter at "Git branch?" to cover every Preview branch):
+
+```bash
+vercel env add KEY_VAULT_ENCRYPTION_KEY production --sensitive --project node-canvas --scope <team> --value "$(openssl rand -base64 32)"
+vercel env add KEY_VAULT_ENCRYPTION_KEY preview --sensitive --project node-canvas --scope <team> --value "$(openssl rand -base64 32)"
+```
 
 - [ ] **Step 6 (ask first): Migrate the Neon database and deploy**
 
 ```bash
-pnpm dlx vercel@latest link --project node-canvas --yes
-pnpm dlx vercel@latest env pull .env --environment=production
-pnpm db:migrate
-rm .env
+pnpm dlx vercel@latest link --project node-canvas --scope <team> --yes
+# The Neon integration marks its variables Sensitive, so `vercel env pull`
+# writes "[SENSITIVE]" instead of the URL. Copy the unpooled connection string
+# from Neon → Connect (pooling off) and paste it at the hidden prompt (zsh):
+read -rs "DATABASE_URL_UNPOOLED?Neon unpooled URL: " && export DATABASE_URL_UNPOOLED && pnpm db:migrate; unset DATABASE_URL_UNPOOLED
 git commit --allow-empty -m "chore: trigger the first production deploy
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push
 ```
 
-Expected: `Applied 1 migration(s).`, then `curl -s https://node-canvas.vercel.app/api/health` returns `{"ok":true,"commit":"<sha>"}` matching `git rev-parse --short HEAD`.
+Expected: `Applied 1 migration(s).`, then `curl -s https://node-canvas-theta.vercel.app/api/health` returns `{"ok":true,"commit":"<sha>"}` matching `git rev-parse --short HEAD`.
 
 - [ ] **Step 7: Smoke-test production by hand**
 
-Sign up at `https://node-canvas.vercel.app/sign-up` with a throwaway address, connect a real key (the user does this — never type a real key on their behalf), confirm the last four show, delete the account.
+Sign up at `https://node-canvas-theta.vercel.app/sign-up` with a throwaway address, connect a real key (the user does this — never type a real key on their behalf), confirm the last four show, delete the account.
 
 ---
 

@@ -1,4 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
+import type { ChatMessage, ChatStreamEvent } from '../shared/chat-types';
+import type { ModelSpec } from '../shared/models';
 import { ApiError } from './api-error';
 
 const VALIDATE_TIMEOUT_MS = 20_000;
@@ -66,5 +68,67 @@ export async function validateApiKey(apiKey: string): Promise<void> {
 		await clientFor(apiKey, VALIDATE_TIMEOUT_MS).models.list({ limit: 1 });
 	} catch (error) {
 		throw toApiError(error, 'validate');
+	}
+}
+
+const CHAT_TIMEOUT_MS = 120_000;
+const MAX_TOKENS = 64_000;
+const DECLINED = 'The model declined to answer this request. Try rephrasing it.';
+
+/**
+ * Streams one reply as our own transport-neutral events. Thinking summaries
+ * are on wherever the model takes adaptive thinking, so the card has
+ * something real to show while the model works. Refusals are retried on
+ * Anthropic's recommended fallback on the same stream; text already sent
+ * stays valid, so the relay needs no special handling for it.
+ */
+export async function* streamChat(options: {
+	apiKey: string;
+	model: ModelSpec;
+	system?: string;
+	messages: ChatMessage[];
+	signal: AbortSignal;
+}): AsyncGenerator<ChatStreamEvent> {
+	const { model } = options;
+	const params = {
+		model: model.id,
+		max_tokens: MAX_TOKENS,
+		...(model.thinking === 'adaptive'
+			? { thinking: { type: 'adaptive', display: 'summarized' } }
+			: {}),
+		...(model.effort ? { output_config: { effort: model.effort } } : {}),
+		...(model.fallbacks
+			? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }
+			: {}),
+		...(options.system ? { system: options.system } : {}),
+		messages: options.messages.map((m) => ({ role: m.role, content: m.content }))
+	};
+	const client = clientFor(options.apiKey, CHAT_TIMEOUT_MS);
+	try {
+		const stream = client.beta.messages.stream(
+			params as unknown as Parameters<typeof client.beta.messages.stream>[0],
+			{ signal: options.signal }
+		);
+		for await (const event of stream) {
+			if (event.type !== 'content_block_delta') continue;
+			if (event.delta.type === 'text_delta') yield { type: 'text', text: event.delta.text };
+			else if (event.delta.type === 'thinking_delta')
+				yield { type: 'thinking', text: event.delta.thinking };
+		}
+		const final = await stream.finalMessage();
+		// A refusal is an HTTP 200 with stop_reason "refusal": check before trusting content.
+		if (final.stop_reason === 'refusal') {
+			yield { type: 'error', code: 'model_declined', message: DECLINED };
+			return;
+		}
+		yield {
+			type: 'done',
+			stopReason: final.stop_reason ?? 'end_turn',
+			usage: { inputTokens: final.usage.input_tokens, outputTokens: final.usage.output_tokens }
+		};
+	} catch (error) {
+		if (options.signal.aborted) return; // the browser went away or pressed Stop
+		const apiError = toApiError(error, 'chat');
+		yield { type: 'error', code: apiError.code, message: apiError.message };
 	}
 }

@@ -27,6 +27,14 @@ All of them gate CI. `pnpm test:db` starts its own Postgres (embedded) unless
 `TEST_DATABASE_URL` is set. `pnpm test:e2e` builds, then runs against
 `vite preview` with a fresh database and a fake Anthropic API — no real key.
 
+`pnpm test:perf` runs the canvas performance budget (spec §1.4: p95 frame
+≤ 20 ms at 4× CPU, 50 nodes, 3 streams). It is machine-dependent, so it is
+not in CI — run it before merging canvas changes.
+
+Browser tests sign in through `tests/support/seed-server.ts` (test-only):
+`signIn()` from `tests/e2e/fixtures.ts` creates a fresh user, key and
+session, so tests never spend the real sign-up/sign-in limits.
+
 ## Commits
 
 Small, conventional. If a change touches auth, key storage or the provider
