@@ -68,6 +68,24 @@ export type UndoState = {
 	clearedTarget: string | null;
 };
 
+/** A remembered on/off choice. Private mode or blocked storage just means it is not remembered. */
+function readFlag(key: string, fallback: boolean): boolean {
+	try {
+		const value = localStorage.getItem(key);
+		return value === null ? fallback : value === '1';
+	} catch {
+		return fallback;
+	}
+}
+
+function writeFlag(key: string, value: boolean): void {
+	try {
+		localStorage.setItem(key, value ? '1' : '0');
+	} catch {
+		// the choice just won't persist
+	}
+}
+
 export class CanvasStore {
 	graph = $state.raw<ConversationGraph>({ nodesById: {}, nodeIds: [] });
 	/**
@@ -89,6 +107,22 @@ export class CanvasStore {
 	readonly structure = $derived.by(() => {
 		void this.layoutVersion;
 		return untrack(() => graphStructure(this.graph));
+	});
+	/** Dim the cards off the root → target path (spec §4). On by default; `F` or the top-bar button toggles it. */
+	focusPath = $state(readFlag('nc:focusPath', true));
+	transcriptOpen = $state(false);
+	shortcutsOpen = $state(false);
+
+	/** The root → target path, or null without a target. Rebuilt when the target or the structure changes, never per token. */
+	readonly pathIds = $derived.by(() => {
+		void this.layoutVersion;
+		const target = this.target;
+		return untrack(() =>
+			target && this.graph.nodesById[target]
+				? // eslint-disable-next-line svelte/prefer-svelte-reactivity -- a snapshot rebuilt whole, never mutated
+					new Set(pathToRoot(this.graph, target).map((n) => n.id))
+				: null
+		);
 	});
 
 	readonly width = NODE_WIDTH_DESKTOP;
@@ -218,6 +252,15 @@ export class CanvasStore {
 			queue.push(...(children.get(next) ?? []));
 		}
 		return seen.size;
+	}
+
+	dimmed(id: string): boolean {
+		return this.focusPath && this.pathIds !== null && !this.pathIds.has(id);
+	}
+
+	toggleFocusPath(): void {
+		this.focusPath = !this.focusPath;
+		writeFlag('nc:focusPath', this.focusPath);
 	}
 
 	branch(id: string): void {

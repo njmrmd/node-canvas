@@ -58,9 +58,24 @@
 					if (p && p.position.x === node.position.x && p.position.y === node.position.y && p.width === width && p.height === height) return p;
 					return { ...(p ?? { id, type: 'card', data: {} }), position: node.position, width, height };
 				});
+		});
+	});
+
+	// Edges: on structure changes, and when the target or the focus path changes — still never per token.
+	$effect(() => {
+		void store.layoutVersion;
+		const path = store.pathIds;
+		const dim = store.focusPath && path !== null;
+		untrack(() => {
+			const graph = store.graph;
+			const { hidden } = store.structure;
 			edges = graph.nodeIds
 				.filter((id) => !hidden.has(id) && graph.nodesById[id].parentId)
-				.map((id) => ({ id: `e-${id}`, source: graph.nodesById[id].parentId!, target: id }));
+				.map((id) => {
+					const source = graph.nodesById[id].parentId!;
+					const onPath = dim && path!.has(id) && path!.has(source);
+					return { id: `e-${id}`, source, target: id, class: !dim ? undefined : onPath ? 'on-path' : 'off-path' };
+				});
 		});
 	});
 
@@ -156,5 +171,13 @@
 		position: relative;
 		flex: 1;
 		min-height: 0;
+	}
+	.flow :global(.svelte-flow__edge.off-path) {
+		opacity: 0.35;
+		transition: opacity var(--dur-base) var(--ease-out);
+	}
+	.flow :global(.svelte-flow__edge.on-path .svelte-flow__edge-path) {
+		stroke: var(--cy-gold);
+		stroke-width: 2;
 	}
 </style>

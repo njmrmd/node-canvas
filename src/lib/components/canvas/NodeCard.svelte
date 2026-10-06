@@ -73,6 +73,7 @@
 		class="card"
 		class:target={isTarget}
 		class:sized
+		class:dim={store.dimmed(id)}
 		data-node-id={id}
 		data-parent-id={node.parentId ?? ''}
 		data-status={node.status}
@@ -218,6 +219,10 @@
 		border-radius: var(--radius-md);
 		box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
 		font: var(--text-sm);
+		transition: opacity var(--dur-base) var(--ease-out);
+	}
+	.card.dim:not(:hover):not(:focus-within) {
+		opacity: 0.45;
 	}
 	.card.sized {
 		overflow: hidden;

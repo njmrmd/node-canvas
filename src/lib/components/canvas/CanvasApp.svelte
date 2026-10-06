@@ -9,6 +9,8 @@
 	import Banner from './Banner.svelte';
 	import Canvas from './Canvas.svelte';
 	import Composer from './Composer.svelte';
+	import LinearView from './LinearView.svelte';
+	import ShortcutsSheet from './ShortcutsSheet.svelte';
 	import TopBar from './TopBar.svelte';
 
 	type Data = { view: ViewWire | null; email: string; models: readonly ModelSpec[]; defaultModelId: string };
@@ -43,10 +45,13 @@
 	{#if store.saveError}<Banner tone="danger">{store.saveError}</Banner>{/if}
 	<Canvas onpick={(prompt) => composer?.draft(prompt)} />
 	<Composer bind:this={composer} />
+	{#if store.transcriptOpen}<LinearView />{/if}
+	{#if store.shortcutsOpen}<ShortcutsSheet />{/if}
 </div>
 
 <style>
 	.app {
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		height: 100vh;

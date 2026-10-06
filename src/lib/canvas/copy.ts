@@ -148,6 +148,11 @@ const PORT_RULED = {
   "node.action.resize": "Resize card",
   /* Plan 3: the chip on a collapsed card — the spec asks for a hidden-count chip and gives no wording. */
   "node.hiddenCount": "{n} hidden",
+  /* Plan 3: the linear view's copy confirmation (the old app's hard-coded "Copied"), and its empty state
+   * (the old app never showed an empty panel; this port opens it without a target too). */
+  "linearview.copied": "Copied",
+  "linearview.empty":
+    "Nothing here yet. Send a message, or branch from a card, and its conversation shows here as text.",
 } as const;
 
 export const COPY = {
