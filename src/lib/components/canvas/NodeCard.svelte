@@ -102,7 +102,7 @@
 				aria-label="Branch"
 				title={canBranchFrom(node)
 					? undefined
-					: copy(node.status === 'error' || node.status === 'interrupted' ? 'branch.failed' : 'branch.disabled')}
+					: copy(node.status === 'streaming' ? 'branch.disabled' : 'branch.failed')}
 				disabled={!canBranchFrom(node)}
 				onclick={() => store.branch(id)}>{copy('node.action.branch')}</button
 			>

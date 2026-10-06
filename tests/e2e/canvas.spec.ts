@@ -149,3 +149,14 @@ test('a reply that did not finish says so in the composer instead of waiting for
 	await page.getByRole('button', { name: 'New conversation' }).click();
 	await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
 });
+
+test('a reply that finished empty says so in the composer instead of waiting forever', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const id = await send(page, '[empty] say nothing');
+	await expect(page.locator(`article[data-node-id="${id}"]`)).toHaveAttribute('data-status', 'complete');
+	await expect(page.getByLabel('Message')).toHaveAttribute(
+		'placeholder',
+		"This reply didn't finish. Branch from another card, or start a new conversation."
+	);
+});

@@ -63,6 +63,7 @@
 		<button type="submit" disabled={!text.trim() || !!blocked || tooLong}>Send</button>
 	</div>
 	{#if tooLong}<p class="note" role="status">{copy('composer.tooLong')}</p>{/if}
+	{#if blocked && text.trim()}<p class="note" role="status">{blocked}</p>{/if}
 </form>
 
 <style>

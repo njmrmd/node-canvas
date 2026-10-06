@@ -38,6 +38,7 @@ function plan(prompt: string) {
 			'Here is **bold** and `code`.\n\n- first\n- second\n\n```js\nconst x = 1;\n```\n\n' +
 			'<img src=x onerror="window.__xss=1"> <script>window.__xss=2</script>';
 	}
+	if (prompt.includes('[empty]')) text = '';
 	return {
 		thinking: prompt.includes('[think]')
 			? 'Weighing two readings of the question before answering.'

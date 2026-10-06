@@ -241,7 +241,8 @@ export class CanvasStore {
 		const blocked = this.streamBlockedReason;
 		if (blocked) return blocked;
 		const t = this.target ? this.graph.nodesById[this.target] : null;
-		if (t && !canBranchFrom(t)) return copy(t.status === 'error' || t.status === 'interrupted' ? 'branch.failed' : 'branch.disabled');
+		// Only a reply still on its way will finish; one that stopped, failed or came back empty will not.
+		if (t && !canBranchFrom(t)) return copy(t.status === 'streaming' ? 'branch.disabled' : 'branch.failed');
 		return null;
 	}
 

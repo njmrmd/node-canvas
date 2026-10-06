@@ -134,8 +134,8 @@ const PORT_RULED = {
   /* The draft is over `MAX_MESSAGE_CHARS`; nothing is sent, the draft stays. */
   "composer.tooLong":
     "This message is too long to send. Shorten it to under 100,000 characters.",
-  /* The target failed or was stopped before any reply text: it never will
-   * finish, so `branch.disabled` would promise something that cannot happen. */
+  /* The target failed, was stopped, or finished without any reply text: it will
+   * not get any, so `branch.disabled` would promise something that cannot happen. */
   "branch.failed":
     "This reply didn't finish. Branch from another card, or start a new conversation.",
   /* Plan 3: the card's delete button (the old app's hard-coded label). */
@@ -157,6 +157,10 @@ const PORT_RULED = {
   "linearview.copyFailed": "Couldn't copy",
   /* Plan 3: the visible 100% control spec §4 lists beside zoom in/out and fit. */
   "zoom.reset": "Zoom to 100%",
+  /* Plan 3: spec §2 / §8's notice below ~900 px. The old app had none; this is new wording. */
+  "desktop.title": "node-canvas is built for desktop",
+  "desktop.body":
+    "Open it in a browser window at least 900 pixels wide. Your canvas is saved and waiting there.",
 } as const;
 
 export const COPY = {
