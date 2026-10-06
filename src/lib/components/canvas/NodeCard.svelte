@@ -35,14 +35,14 @@
 	const children = $derived(store.childCount(id));
 	const hiddenCount = $derived(node?.collapsed ? store.hiddenBelow(id) : 0);
 	const oneLine = $derived(node?.bodyCollapsed ? summaryLine(node) : '');
-	/** The size a resize began at: a click on the corner without a drag must not pin the card's size. */
-	let resizeFrom: { width: number; height: number } | null = null;
+	/** Whether this resize changed the card's size: a click on the corner without a drag does not, and must not pin it. */
+	let resizeChanged = false;
 
 	/** The collapsed body's one line: the reply's first line, else the failure, else "Thinking", else the prompt. */
 	function summaryLine(n: ConversationNode): string {
 		const line = firstLine(n.response);
 		if (line) return line;
-		if (n.error) return n.error.message;
+		if (n.error) return presentError(n.error).message;
 		if (n.status === 'streaming') return copy('node.status.thinking');
 		return n.prompt;
 	}
@@ -195,11 +195,11 @@
 				class="resize"
 				aria-label={copy('node.action.resize')}
 				title={copy('node.action.resize')}
-				onResizeStart={(_event, params) => (resizeFrom = { width: params.width, height: params.height })}
+				onResizeStart={() => (resizeChanged = false)}
+				onResize={() => (resizeChanged = true)}
 				onResizeEnd={(_event, params) => {
-					const from = resizeFrom;
-					resizeFrom = null;
-					if (from && Math.round(from.width) === Math.round(params.width) && Math.round(from.height) === Math.round(params.height)) return;
+					// Svelte Flow calls onResize only when the size changes; a click on the corner ends without one.
+					if (!resizeChanged) return;
 					store.resized(id, { width: params.width, height: params.height });
 				}}
 			/>
@@ -228,6 +228,7 @@
 	}
 	header {
 		display: flex;
+		flex-wrap: wrap; /* a narrow card wraps its buttons rather than pushing Delete out of it */
 		align-items: center;
 		gap: var(--space-2);
 		padding: var(--space-2) var(--space-3);

@@ -115,3 +115,44 @@ test('sending to a reply hidden since a Tidy lays it out under its parent again,
 	expect(Math.abs(r.x + r.width / 2 - (p.x + p.width / 2)) / zoom).toBeLessThan(40); // centred under it, in flow units
 	expect((r.y - (p.y + p.height)) / zoom).toBeGreaterThan(0); // and below it
 });
+
+test("reopening a collapsed chain lays a tall card's reply below it, not on top of it", async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const top = await send(page, 'top');
+	const middle = await send(page, '[long] a tall middle card');
+	const bottom = await send(page, 'bottom');
+	await fit(page); // once the tall card is framed, the top one is off screen
+	const topCard = page.locator(`article[data-node-id="${top}"]`);
+	await topCard.getByRole('button', { name: 'Collapse', exact: true }).click();
+	await topCard.getByRole('button', { name: '2 hidden' }).click();
+	await fit(page);
+	await expect(page.locator(`article[data-node-id="${bottom}"]`)).toBeVisible();
+	const { zoom } = await viewport(page);
+	const m = (await page.locator(`.svelte-flow__node[data-id="${middle}"]`).boundingBox())!;
+	const b = (await page.locator(`.svelte-flow__node[data-id="${bottom}"]`).boundingBox())!;
+	expect((b.y - (m.y + m.height)) / zoom).toBeGreaterThanOrEqual(0); // the bottom card's top, in flow units, at or below the middle card's bottom
+});
+
+test('a streaming card resized to the minimum width keeps its Delete button inside it', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	await page.route('**/api/chat', () => {}); // never answered: the card stays on "Thinking", its widest header
+	const id = await send(page, 'narrow while thinking', { wait: false });
+	const card = page.locator(`article[data-node-id="${id}"]`);
+	await expect(card.locator('.status')).toHaveText('Thinking');
+	await settled(page);
+	await card.hover();
+	const handle = (await card.locator('.svelte-flow__resize-control').boundingBox())!;
+	await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(handle.x + handle.width / 2 - 300, handle.y + handle.height / 2, { steps: 20 }); // past the 240 px minimum
+	await page.mouse.up();
+	await expect(card).toHaveCSS('width', '240px');
+	const box = (await card.boundingBox())!;
+	const del = (await card.getByRole('button', { name: 'Delete' }).boundingBox())!;
+	expect(del.x).toBeGreaterThanOrEqual(box.x);
+	expect(del.y).toBeGreaterThanOrEqual(box.y);
+	expect(del.x + del.width).toBeLessThanOrEqual(box.x + box.width);
+	expect(del.y + del.height).toBeLessThanOrEqual(box.y + box.height);
+});

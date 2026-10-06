@@ -19,13 +19,22 @@
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- bookkeeping read only in rAF, never rendered
 	const framed = new Set<string>();
 
-	store.measure = () =>
-		new Map(
-			store.graph.nodeIds.flatMap((id) => {
-				const h = flow.getInternalNode(id)?.measured.height;
-				return h ? [[id, h] as const] : [];
-			})
-		);
+	// The flow measures only the cards it draws. Keep each card's last height while it is hidden, so a subtree
+	// reopened by the chip, a send or Undo is laid out with real sizes rather than the 160 px default.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- a cache read by layout calls only, never rendered
+	const lastHeights = new Map<string, number>();
+	store.measure = () => {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- a one-off snapshot, never observed
+		const heights = new Map<string, number>();
+		for (const id of store.graph.nodeIds) {
+			const h = flow.getInternalNode(id)?.measured.height ?? lastHeights.get(id);
+			if (h) {
+				lastHeights.set(id, h);
+				heights.set(id, h);
+			}
+		}
+		return heights;
+	};
 	store.visibleCenter = () => {
 		const r = container!.getBoundingClientRect();
 		return flow.screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height * 0.4 });

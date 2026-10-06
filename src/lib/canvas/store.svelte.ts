@@ -206,13 +206,16 @@ export class CanvasStore {
 	/** How many cards a collapse on `id` hides: everything below it, not only its direct replies. */
 	hiddenBelow(id: string): number {
 		const { children } = this.structure;
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- a lookup local to this call, never observed
+		const seen = new Set<string>();
 		const queue = [...(children.get(id) ?? [])];
-		let count = 0;
 		while (queue.length > 0) {
-			count += 1;
-			queue.push(...(children.get(queue.pop()!) ?? []));
+			const next = queue.pop()!;
+			if (seen.has(next)) continue; // only a corrupted, cyclic graph comes back round; graphStructure guards the same way
+			seen.add(next);
+			queue.push(...(children.get(next) ?? []));
 		}
-		return count;
+		return seen.size;
 	}
 
 	branch(id: string): void {
@@ -277,7 +280,8 @@ export class CanvasStore {
 		this.enqueue(id);
 	}
 
-	/** Opens every collapsed card on the way down to `id`, and lays the opened subtree out under the topmost one — as the chip does. */
+	/** Opens every collapsed card on the way down to `id`, and lays the opened subtree out under the topmost one.
+	 * The chip, a send and Undo all reopen through here, so they lay a subtree out alike. */
 	private openTo(graph: ConversationGraph, id: string): ConversationGraph {
 		const top = pathToRoot(graph, id).find((n) => n.collapsed);
 		if (!top) return graph;
@@ -380,8 +384,7 @@ export class CanvasStore {
 	toggleCollapsed(id: string): void {
 		const node = this.graph.nodesById[id];
 		if (!node || this.childCount(id) === 0) return;
-		let graph = setCollapsed(this.graph, id, !node.collapsed);
-		if (node.collapsed) graph = reflowChildrenOnCreate(graph, id, this.width, this.measure(), nodeWidthsFrom(graph, this.width));
+		const graph = node.collapsed ? this.openTo(this.graph, id) : setCollapsed(this.graph, id, true);
 		this.commit(graph);
 		this.layoutVersion++;
 	}
