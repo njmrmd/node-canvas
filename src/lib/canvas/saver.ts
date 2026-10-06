@@ -19,15 +19,22 @@ export const SAVE_INTERVAL_MS = 1500;
 export const MAX_BATCH_NODES = 200;
 export const MAX_BATCH_BYTES = 4 * 1024 * 1024 - 64 * 1024;
 export const KEEPALIVE_BYTES = 60 * 1024;
+/** A backstop on single-node retries per flush; the rest stay dirty for the next one. */
+export const MAX_SINGLES_PER_FLUSH = 10;
 
 const encoder = new TextEncoder();
 const bytes = (value: unknown) => encoder.encode(JSON.stringify(value)).byteLength;
 
-/** How one request went. `network` and `limited` stop the flush; `refused` isolates the request's nodes. */
-type Attempt = 'saved' | 'refused' | 'network' | 'limited';
+/**
+ * How one request went. Only `invalid_request` and `payload_too_large` are about the nodes' content,
+ * so only they isolate the request's nodes (`refused`). Anything else — signed out, CSRF, a rate limit,
+ * a database outage, an unexpected throw — would fail every request alike, so it stops the flush.
+ */
+type Attempt = 'saved' | 'refused' | 'network' | 'stopped';
 const classify = (error: unknown): Attempt => {
 	const code = (error as { code?: unknown } | null)?.code;
-	return code === 'network' ? 'network' : code === 'rate_limited' ? 'limited' : 'refused';
+	if (code === 'network') return 'network';
+	return code === 'invalid_request' || code === 'payload_too_large' ? 'refused' : 'stopped';
 };
 
 /** Remembers which nodes changed and sends only those, parents first. */
@@ -123,14 +130,25 @@ export class Saver {
 			this.dirty.clear();
 			this.viewDirty = false;
 
-			let failed = false; // something the server refused or rate limited: the banner goes up
+			// Single-node requests: a refused batch split up, and nodes refused on an earlier flush.
+			const singles = new Set(queue.filter((b) => b.upserts.length === 1 && !b.view && this.suspects.has(b.upserts[0].id)));
+			let sentSingles = 0;
+			let failed = false; // something the server refused or could not take: the banner goes up
 			while (queue.length > 0) {
 				const body = queue.shift()!;
+				if (singles.has(body) && sentSingles >= MAX_SINGLES_PER_FLUSH) {
+					this.requeue([body]);
+					failed = true;
+					continue;
+				}
+				if (singles.has(body)) sentSingles += 1;
 				const result = await this.attempt(body);
 				if (result === 'saved') continue;
 				if (result === 'refused' && body.upserts.length + (body.view ? 1 : 0) > 1) {
 					// Find the node(s) the server will not take: one per request, still parents first, then the view.
-					queue.unshift(...body.upserts.map((n) => ({ upserts: [n] })), ...(body.view ? [{ upserts: [], view: body.view }] : []));
+					const split = body.upserts.map((n) => ({ upserts: [n] }));
+					split.forEach((b) => singles.add(b));
+					queue.unshift(...split, ...(body.view ? [{ upserts: [], view: body.view }] : []));
 					continue;
 				}
 				// Not confirmed goes back to dirty; changes made meanwhile are already there.
@@ -140,7 +158,7 @@ export class Saver {
 					failed = true;
 					continue;
 				}
-				// Offline or rate limited: sending more now only fails the same way.
+				// Offline, signed out, rate limited, the server down: sending more now only fails the same way.
 				this.requeue(queue);
 				if (result === 'network' && !failed) return;
 				failed = true;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { NodeWire, ViewWire } from './node-wire';
-import { MAX_BATCH_BYTES, Saver, type SaveBody, type SaverDeps } from './saver';
+import { MAX_BATCH_BYTES, MAX_SINGLES_PER_FLUSH, Saver, type SaveBody, type SaverDeps } from './saver';
 
 function node(id: string, extra: Partial<NodeWire> = {}): NodeWire {
 	return {
@@ -141,6 +141,47 @@ describe('Saver', () => {
 		await h.saver.flush();
 		assert.equal(h.saver.pending, 0);
 		assert.equal(h.errors.at(-1), null);
+	});
+
+	for (const code of ['unauthenticated', 'internal_error']) {
+		it(`a whole-batch refusal sends at most one request per flush (${code})`, async () => {
+			const nodes = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`n${i}`, node(`n${i}`)]));
+			const h = harness(nodes);
+			Object.keys(nodes).forEach((id) => h.saver.markNode(id));
+			h.fail({ code }, Number.POSITIVE_INFINITY);
+			for (let i = 0; i < 3; i++) await h.saver.flush();
+			assert.equal(h.attempts.length, 3);
+			assert.equal(h.saver.pending, 50);
+			assert.equal(h.errors.at(-1), 'not saved');
+		});
+	}
+
+	it('a thrown non-API error stops the flush too', async () => {
+		const nodes = { a: node('a'), b: node('b') };
+		const h = harness(nodes);
+		h.saver.markNode('a');
+		h.saver.markNode('b');
+		h.fail(new TypeError('boom'), Number.POSITIVE_INFINITY);
+		await h.saver.flush();
+		assert.equal(h.attempts.length, 1);
+		assert.equal(h.saver.pending, 2);
+		assert.deepEqual(h.errors, ['not saved']);
+	});
+
+	it('sends at most 10 single-node retries in one flush; the rest wait for the next', async () => {
+		const nodes = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`n${i}`, node(`n${i}`)]));
+		const h = harness(nodes);
+		Object.keys(nodes).forEach((id) => {
+			h.refuse(id);
+			h.saver.markNode(id);
+		});
+		await h.saver.flush();
+		assert.equal(h.attempts.length, 1 + MAX_SINGLES_PER_FLUSH);
+		assert.equal(h.saver.pending, 30);
+		assert.equal(h.errors.at(-1), 'not saved');
+		h.attempts.length = 0;
+		await h.saver.flush();
+		assert.ok(h.attempts.length <= 1 + MAX_SINGLES_PER_FLUSH, `sent ${h.attempts.length}`);
 	});
 
 	it('stops retrying singly when the network drops, keeping the rest dirty', async () => {
