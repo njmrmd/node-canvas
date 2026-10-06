@@ -22,17 +22,31 @@ export async function send(page: Page, prompt: string, { wait = true }: { wait?:
 	return id;
 }
 
-/** Every saved node as the canvas load fetches them, page by page, as JSON text — for `toContain` waits. */
+/**
+ * Every saved node as the canvas load fetches them, page by page, as JSON text — for `toContain` waits.
+ * Each GET is retried, so one stalled request cannot fail a poll.
+ */
 export async function savedNodesText(page: Page): Promise<string> {
 	const parts: string[] = [];
 	let after: string | null = null;
 	do {
-		const res = await page.request.get(after === null ? '/api/nodes' : `/api/nodes?after=${encodeURIComponent(after)}`);
-		const body = (await res.json()) as { nodes: unknown[]; next: string | null };
+		const body = await getNodesPage(page, after === null ? '/api/nodes' : `/api/nodes?after=${encodeURIComponent(after)}`);
 		parts.push(JSON.stringify(body.nodes));
 		after = body.next;
 	} while (after !== null);
 	return parts.join('\n');
+}
+
+async function getNodesPage(page: Page, url: string): Promise<{ nodes: unknown[]; next: string | null }> {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			const res = await page.request.get(url, { timeout: 2000 });
+			if (!res.ok()) throw new Error(`GET ${url} answered ${res.status()}`);
+			return (await res.json()) as { nodes: unknown[]; next: string | null };
+		} catch (error) {
+			if (attempt === 3) throw error;
+		}
+	}
 }
 
 export async function viewport(page: Page) {

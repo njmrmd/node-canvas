@@ -233,6 +233,8 @@ export class CanvasStore {
 	/** Retry: the same prompt again, into the same card, replacing the failed reply. */
 	retry(id: string): void {
 		if (!canRetry(this.graph, id) || this.streamBlockedReason) return;
+		// Retry clears this card's text; a deleted reply to that text must not come back under it.
+		if (this.undo?.removed[0]?.parentId === id) this.setUndo(null);
 		const tooLong = checkBranchSize(toMessages(this.graph, id));
 		if (tooLong) {
 			this.commit(failNode(this.graph, id, { code: 'invalid_request', message: tooLong.message }));
@@ -360,12 +362,9 @@ export class CanvasStore {
 		const undo = this.undo;
 		if (!undo) return;
 		this.setUndo(null);
-		let graph: ConversationGraph;
-		try {
-			graph = restoreBranch(this.graph, undo.removed);
-		} catch {
-			return; // its parent is gone since: nothing to hang it on
-		}
+		const parentId = undo.removed[0]?.parentId ?? null;
+		if (parentId !== null && !this.graph.nodesById[parentId]) return; // its parent is gone since: nothing to hang it on
+		const graph = restoreBranch(this.graph, undo.removed);
 		this.saver.cancelDeletion(undo.rootId);
 		this.commit(graph); // every restored node is new to the graph, so every one is saved again, parents first
 		if (undo.clearedTarget && this.target === null) {

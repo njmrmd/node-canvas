@@ -20,7 +20,9 @@
 		if (failure) return failure.category;
 		return '';
 	});
-	// When each applies is graph.ts's call. Only a failed card pays for the child lookup Retry needs.
+	// graph.ts decides when Retry and Continue apply. The Regenerate button is offered only on a stopped card
+	// (beside Continue when it has text) or a failed one that cannot be retried; R on the keyboard (Task 10) can
+	// regenerate any finished card. Only a failed card pays for the child lookup Retry needs.
 	const retryable = $derived(node?.status === 'error' && canRetry(store.graph, id));
 	const continuable = $derived(!!node && canContinue(node));
 	const regenerable = $derived(
@@ -104,13 +106,27 @@
 					>
 				{/if}
 				{#if continuable}
-					<button class="nodrag primary" type="button" disabled={!!blocked} title={blocked ?? undefined} onclick={() => store.continueReply(id)}
-						>{copy('node.action.continue')}</button
+					<button
+						class="nodrag primary"
+						type="button"
+						disabled={!!blocked}
+						title={blocked ?? undefined}
+						onclick={(e) => {
+							// A double click is one request: its second click would make a second card and spend a second message.
+							if (e.detail <= 1) store.continueReply(id);
+						}}>{copy('node.action.continue')}</button
 					>
 				{/if}
 				{#if regenerable}
-					<button class="nodrag" type="button" disabled={!!blocked} title={blocked ?? undefined} onclick={() => store.regenerate(id)}
-						>{copy('node.action.regenerate')}</button
+					<button
+						class="nodrag"
+						type="button"
+						disabled={!!blocked}
+						title={blocked ?? undefined}
+						onclick={(e) => {
+							// A double click is one request: its second click would make a second card and spend a second message.
+							if (e.detail <= 1) store.regenerate(id);
+						}}>{copy('node.action.regenerate')}</button
 					>
 				{/if}
 			</footer>

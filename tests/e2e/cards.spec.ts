@@ -8,7 +8,8 @@ test('deleting an ancestor of the target clears the composer, and Undo rebinds i
 	const b = await send(page, 'child card');
 	await page.locator(`article[data-node-id="${a}"]`).getByRole('button', { name: 'Delete' }).click();
 	await expect(cards(page)).toHaveCount(0);
-	await expect(page.getByRole('status').filter({ hasText: 'Node and 1 below it deleted.' })).toBeVisible();
+	// The status region is always mounted (and has no box of its own); the message inside it is what shows.
+	await expect(page.getByRole('status').getByText('Node and 1 below it deleted.', { exact: true })).toBeVisible();
 	await expect(page.getByTestId('composer-target')).toHaveAttribute('data-target-id', '');
 	await page.getByRole('button', { name: 'Undo' }).click();
 	await expect(page.locator(`article[data-node-id="${a}"]`)).toBeVisible();
@@ -108,4 +109,46 @@ test('Regenerate asks the same prompt again in a new card beside it', async ({ p
 	const sibling = page.locator(`article[data-node-id="${await target.getAttribute('data-target-id')}"]`);
 	await expect(sibling).toHaveAttribute('data-parent-id', root);
 	await expect(sibling.locator('.prompt')).toHaveText('[slow][long] say it again');
+});
+
+test('Retry on a card whose reply was just deleted ends that Undo, so no reply comes back under cleared text', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const parent = await send(page, '[midfail] part of an answer', { wait: false });
+	const card = page.locator(`article[data-node-id="${parent}"]`);
+	await expect(card).toHaveAttribute('data-status', 'error');
+	const child = await send(page, 'a reply to the partial answer');
+	await page.locator(`article[data-node-id="${child}"]`).getByRole('button', { name: 'Delete' }).click();
+	await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+	await card.getByRole('button', { name: 'Retry' }).click();
+	await expect(page.getByRole('button', { name: 'Undo' })).toHaveCount(0);
+});
+
+test('a double click on Continue makes one card, not two', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const id = await send(page, '[slow][long] once only', { wait: false });
+	const card = page.locator(`article[data-node-id="${id}"]`);
+	await expect(card).toContainText('Echo: once only.');
+	await card.getByRole('button', { name: 'Stop' }).click();
+	await card.getByRole('button', { name: 'Continue' }).dblclick();
+	await expect(page.locator(`article[data-parent-id="${id}"]`)).toHaveCount(1);
+});
+
+test('deleting a card whose reply is still streaming stops it, and Undo brings both back', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const parent = await send(page, 'parent of a long reply');
+	const child = await send(page, '[slow][long] still going below', { wait: false });
+	const childCard = page.locator(`article[data-node-id="${child}"]`);
+	await expect(childCard).toContainText('Echo: still going below.');
+	await page.locator(`article[data-node-id="${parent}"]`).getByRole('button', { name: 'Delete' }).click();
+	await expect(childCard).toHaveCount(0);
+	await page.getByRole('button', { name: 'Undo' }).click();
+	await expect(childCard).toHaveAttribute('data-status', 'interrupted');
+	await expect(childCard).toBeVisible();
+	const body = childCard.getByTestId('card-body');
+	const text = await body.innerText();
+	await page.waitForTimeout(800); // a stream left running would keep adding text
+	expect(await body.innerText()).toBe(text);
 });

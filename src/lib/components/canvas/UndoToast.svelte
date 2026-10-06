@@ -13,12 +13,14 @@
 	);
 </script>
 
-{#if store.undo}
-	<div class="toast" role="status">
-		<span>{message}</span>
-		<button type="button" onclick={() => store.undoRemove()}>{copy('delete.undo.action')}</button>
-	</div>
-{/if}
+<div role="status">
+	{#if store.undo}
+		<div class="toast">
+			<span>{message}</span>
+			<button type="button" onclick={() => store.undoRemove()}>{copy('delete.undo.action')}</button>
+		</div>
+	{/if}
+</div>
 
 <style>
 	.toast {
