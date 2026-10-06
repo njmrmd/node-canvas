@@ -3,16 +3,17 @@
 	import { copy } from '$lib/canvas/copy';
 </script>
 
-<div class="desktop-only" role="note">
-	<h1>{copy('desktop.title')}</h1>
+<main class="desktop-only" aria-labelledby="desktop-only-title">
+	<h1 id="desktop-only-title">{copy('desktop.title')}</h1>
 	<p>{copy('desktop.body')}</p>
-</div>
+</main>
 
 <style>
 	.desktop-only {
 		display: none;
 	}
-	@media (max-width: 899px) {
+	/* Keep in step with +layout.svelte: the page hides under this same width. */
+	@media (width < 900px) {
 		.desktop-only {
 			display: flex;
 			flex-direction: column;

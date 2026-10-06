@@ -10,6 +10,16 @@ test('offline shows the banner and blocks sending; online clears it', async ({ p
 	await page.getByLabel('Message').fill('hello');
 	await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
 	await expect(page.locator('.composer .note')).toHaveText('Offline');
+	await expect(page.getByLabel('Message')).toHaveAttribute('aria-describedby', 'composer-blocked');
+	await expect(page.locator('#composer-blocked')).toHaveText('Offline');
+	// A draft of only spaces hides the placeholder too, so it gets the reason as well.
+	await page.getByLabel('Message').fill('   ');
+	await expect(page.locator('.composer .note')).toHaveText('Offline');
+	// With nothing typed the placeholder says it, and there is no note to describe the field.
+	await page.getByLabel('Message').fill('');
+	await expect(page.locator('.composer .note')).toHaveCount(0);
+	await expect(page.getByLabel('Message')).not.toHaveAttribute('aria-describedby');
+	await page.getByLabel('Message').fill('hello');
 	await context.setOffline(false);
 	await expect(page.getByText("You're offline.")).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();

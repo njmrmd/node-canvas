@@ -2,7 +2,7 @@
 	import { Handle, NodeResizeControl, Position, type NodeProps } from '@xyflow/svelte';
 	import { copy } from '$lib/canvas/copy';
 	import { presentError } from '$lib/canvas/errors';
-	import { canBranchFrom, canContinue, canRegenerate, canRetry, CONTINUE_PROMPT, type ConversationNode } from '$lib/canvas/graph';
+	import { branchBlockedKey, canContinue, canRegenerate, canRetry, CONTINUE_PROMPT, type ConversationNode } from '$lib/canvas/graph';
 	import { NODE_HEIGHT_MAX, NODE_HEIGHT_MIN, NODE_WIDTH_MAX, NODE_WIDTH_MIN } from '$lib/canvas/layout';
 	import { useCanvas } from '$lib/canvas/store.svelte';
 	import Markdown from './Markdown.svelte';
@@ -30,6 +30,8 @@
 		!!node && (node.status === 'interrupted' || (node.status === 'error' && !retryable)) && canRegenerate(store.graph, id)
 	);
 	const blocked = $derived(store.streamBlockedReason);
+	/** Why a branch cannot hang off this card, if it cannot; the composer says the same when this card is its target. */
+	const branchBlocked = $derived(node ? branchBlockedKey(node) : null);
 	/** A resized card has a fixed height — except while its body is collapsed, when it is one line. */
 	const sized = $derived(height !== undefined && !node?.bodyCollapsed);
 	const children = $derived(store.childCount(id));
@@ -100,10 +102,8 @@
 				class="nodrag"
 				type="button"
 				aria-label="Branch"
-				title={canBranchFrom(node)
-					? undefined
-					: copy(node.status === 'streaming' ? 'branch.disabled' : 'branch.failed')}
-				disabled={!canBranchFrom(node)}
+				title={branchBlocked ? copy(branchBlocked) : undefined}
+				disabled={branchBlocked !== null}
 				onclick={() => store.branch(id)}>{copy('node.action.branch')}</button
 			>
 			<button

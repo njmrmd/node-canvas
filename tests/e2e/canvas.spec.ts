@@ -159,4 +159,8 @@ test('a reply that finished empty says so in the composer instead of waiting for
 		'placeholder',
 		"This reply didn't finish. Branch from another card, or start a new conversation."
 	);
+	// The card says the same: its Branch button is off, and its tooltip is the same sentence.
+	const branch = page.locator(`article[data-node-id="${id}"] button[aria-label="Branch"]`);
+	await expect(branch).toBeDisabled();
+	await expect(branch).toHaveAttribute('title', "This reply didn't finish. Branch from another card, or start a new conversation.");
 });

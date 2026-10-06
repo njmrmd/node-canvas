@@ -180,6 +180,17 @@ export function canBranchFrom(node: ConversationNode): boolean {
   return node.response.trim() !== "";
 }
 
+/**
+ * Why a branch cannot hang off this node, as a copy key — only a reply still on
+ * its way will finish. Null when it can.
+ */
+export function branchBlockedKey(
+  node: ConversationNode,
+): "branch.disabled" | "branch.failed" | null {
+  if (canBranchFrom(node)) return null;
+  return node.status === "streaming" ? "branch.disabled" : "branch.failed";
+}
+
 /** What Continue sends: the model picks up an interrupted reply, in a new card below it (the old app's wording). */
 export const CONTINUE_PROMPT = "Continue from where you left off.";
 

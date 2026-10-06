@@ -7,6 +7,7 @@ import {
 	adoptPositions,
 	appendText,
 	appendThinking,
+	branchBlockedKey,
 	canBranchFrom,
 	canContinue,
 	canRegenerate,
@@ -241,9 +242,8 @@ export class CanvasStore {
 		const blocked = this.streamBlockedReason;
 		if (blocked) return blocked;
 		const t = this.target ? this.graph.nodesById[this.target] : null;
-		// Only a reply still on its way will finish; one that stopped, failed or came back empty will not.
-		if (t && !canBranchFrom(t)) return copy(t.status === 'streaming' ? 'branch.disabled' : 'branch.failed');
-		return null;
+		const key = t ? branchBlockedKey(t) : null;
+		return key ? copy(key) : null;
 	}
 
 	queuePosition(id: string): number | null {

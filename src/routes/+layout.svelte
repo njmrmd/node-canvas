@@ -15,8 +15,9 @@
 <DesktopOnlyNotice />
 
 <style>
-	/* Spec §2: desktop only. CSS switches, so a narrow window never flashes the page first. */
-	@media (max-width: 899px) {
+	/* Spec §2: desktop only. CSS switches, so a narrow window never flashes the page first.
+	   Keep in step with DesktopOnlyNotice.svelte: the notice shows under this same width. */
+	@media (width < 900px) {
 		.page {
 			display: none;
 		}

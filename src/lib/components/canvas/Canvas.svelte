@@ -144,6 +144,7 @@
 		if (!internal || !width || !height || !container || store.following !== id) return;
 		const rect = { ...internal.internals.positionAbsolute, width, height };
 		const size = visibleSize(); // beside the linear view, not under it
+		if (size.width === 0 || size.height === 0) return; // hidden below 900 px: nothing to frame, and a 0×0 pane would pan the view away
 		const vp = flow.getViewport();
 		if (!framed.has(id)) {
 			framed.add(id);
@@ -266,6 +267,7 @@
 
 	/** Every canvas shortcut comes through here (spec §8: one window handler). */
 	function onKey(event: KeyboardEvent) {
+		if (!container?.clientHeight) return; // hidden below 900 px
 		if (event.defaultPrevented || store.shortcutsOpen) return; // the sheet is modal; its own Esc closes it
 		const el = event.target instanceof HTMLElement ? event.target : null;
 		const typing = !!el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');

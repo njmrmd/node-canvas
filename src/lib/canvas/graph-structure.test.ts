@@ -4,6 +4,7 @@ import {
 	addNode,
 	adoptPositions,
 	appendText,
+	branchBlockedKey,
 	canContinue,
 	canRegenerate,
 	canRetry,
@@ -19,7 +20,9 @@ import {
 	setCollapsed,
 	startStreaming,
 	visibleGraph,
-	type ConversationGraph
+	type ConversationGraph,
+	type ConversationNode,
+	type NodeStatus
 } from './graph';
 
 let clock = 1;
@@ -142,4 +145,32 @@ describe('retry, continue and regenerate', () => {
 		assert.equal(canRegenerate(g, 'r'), true, 'a root can be regenerated');
 		assert.equal(canRegenerate(startStreaming(g, 'a'), 'b'), false, 'not while its parent has no answer');
 	});
+});
+
+describe('why a card cannot be branched from', () => {
+	const fresh = addNode(createGraph(), { id: 'n', prompt: 'n?', position: { x: 0, y: 0 } }).node;
+	const node = (status: NodeStatus, response: string): ConversationNode => ({ ...fresh, status, response });
+
+	type Block = ReturnType<typeof branchBlockedKey>;
+	// Only a reply still on its way will finish. One that stopped, failed or came back empty will not, and a draft has
+	// not been asked yet, so none of them promises it will. A card with text can always be branched from.
+	// A draft has no text, so it has no second column.
+	const rows: { status: NodeStatus; noText: Block; text?: Block }[] = [
+		{ status: 'draft', noText: 'branch.failed' },
+		{ status: 'streaming', noText: 'branch.disabled', text: null },
+		{ status: 'complete', noText: 'branch.failed', text: null },
+		{ status: 'interrupted', noText: 'branch.failed', text: null },
+		{ status: 'error', noText: 'branch.failed', text: null }
+	];
+
+	for (const { status, noText, text } of rows) {
+		it(`${status} with no text: ${noText}`, () => {
+			assert.equal(branchBlockedKey(node(status, '')), noText);
+		});
+		if (text !== undefined) {
+			it(`${status} with text: ${text}`, () => {
+				assert.equal(branchBlockedKey(node(status, 'some text')), text);
+			});
+		}
+	}
 });

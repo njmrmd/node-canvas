@@ -9,6 +9,8 @@
 	const blocked = $derived(store.sendBlockedReason);
 	const tooLong = $derived(text.trim().length > MAX_MESSAGE_CHARS);
 	const placeholder = $derived(blocked ?? (store.target ? copy('composer.placeholder.reply') : copy('composer.placeholder')));
+	// Any draft, even only spaces, hides the placeholder, so while there is one the reason shows beneath it.
+	const showBlocked = $derived(!!blocked && text !== '');
 
 	function submit() {
 		if (store.send(text)) text = '';
@@ -47,6 +49,7 @@
 			bind:value={text}
 			rows="2"
 			{placeholder}
+			aria-describedby={showBlocked ? 'composer-blocked' : undefined}
 			onkeydown={(e) => {
 				if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
 					e.preventDefault();
@@ -63,7 +66,7 @@
 		<button type="submit" disabled={!text.trim() || !!blocked || tooLong}>Send</button>
 	</div>
 	{#if tooLong}<p class="note" role="status">{copy('composer.tooLong')}</p>{/if}
-	{#if blocked && text.trim()}<p class="note" role="status">{blocked}</p>{/if}
+	{#if showBlocked}<p class="note" id="composer-blocked" role="status">{blocked}</p>{/if}
 </form>
 
 <style>
