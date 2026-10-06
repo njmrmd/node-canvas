@@ -5,17 +5,17 @@ import { freshDatabase } from '../../../tests/support/test-db';
 import { ApiError } from './api-error';
 import { query, queryOne } from './db';
 import { wire } from '../../../tests/support/wire';
-import { deleteNode, loadCanvas, parseSaveBody, saveNodes } from './nodes';
+import { deleteNode, loadCanvas, loadNodesPage, parseSaveBody, saveNodes, type Cursor } from './nodes';
 
 let db: Awaited<ReturnType<typeof freshDatabase>> | undefined;
 let a: string;
 let b: string;
+const user = async (email: string) =>
+	(await queryOne<{ id: string }>("insert into users (email, password_hash) values ($1, 'x') returning id", [email]))!.id;
 before(async () => {
 	db = await freshDatabase();
-	const make = async (email: string) =>
-		(await queryOne<{ id: string }>("insert into users (email, password_hash) values ($1, 'x') returning id", [email]))!.id;
-	a = await make('a@nodes.test');
-	b = await make('b@nodes.test');
+	a = await user('a@nodes.test');
+	b = await user('b@nodes.test');
 });
 after(() => db?.drop());
 
@@ -95,5 +95,37 @@ describe('deleteNode', () => {
 		const ids = (await loadCanvas(a)).nodes.map((n) => n.id);
 		assert.ok(!ids.includes(root.id) && !ids.includes(child.id));
 		await query('select 1'); // connection still healthy
+	});
+});
+
+describe('loadNodesPage', () => {
+	it('pages through a canvas in creation order, by bytes, without losing or repeating a node', async () => {
+		const owner = await user('pages@nodes.test');
+		const nodes = Array.from({ length: 5 }, (_, i) =>
+			wire({ response: 'r'.repeat(1000), createdAt: 1_700_000_100_000 + i, updatedAt: 1_700_000_100_000 + i })
+		);
+		await saveNodes(owner, nodes, null);
+		const seen: string[] = [];
+		let after: Cursor | null = null;
+		let pages = 0;
+		do {
+			const page: { nodes: { id: string }[]; next: Cursor | null } = await loadNodesPage(owner, after, 2500);
+			pages += 1;
+			seen.push(...page.nodes.map((n) => n.id));
+			after = page.next;
+		} while (after !== null);
+		assert.deepEqual(seen, nodes.map((n) => n.id));
+		assert.equal(pages, 5); // each node is ~1514 bytes against a 2500-byte budget
+	});
+
+	it("only ever returns the signed-in user's nodes", async () => {
+		const owner = await user('mine@nodes.test');
+		const other = await user('theirs@nodes.test');
+		await saveNodes(other, [wire()], null);
+		const mine = wire();
+		await saveNodes(owner, [mine], null);
+		const page = await loadNodesPage(owner, null);
+		assert.deepEqual(page.nodes.map((n) => n.id), [mine.id]);
+		assert.equal(page.next, null);
 	});
 });

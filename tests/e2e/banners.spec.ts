@@ -17,8 +17,12 @@ test('offline shows the banner and blocks sending; online clears it', async ({ p
 test('a failing save shows the banner, and a later success clears it', async ({ page, signIn }) => {
 	await signIn();
 	await page.goto('/canvas');
+	// The canvas loads its nodes with a GET to this same URL: let that finish, and fail only the saves.
+	await expect(page.getByLabel('Message')).toBeVisible();
 	await page.route('**/api/nodes', (route) =>
-		route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":{"code":"internal_error","message":"x"}}' })
+		route.request().method() === 'PUT'
+			? route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":{"code":"internal_error","message":"x"}}' })
+			: route.continue()
 	);
 	await page.getByLabel('Message').fill('save me');
 	await page.getByLabel('Message').press('Enter');

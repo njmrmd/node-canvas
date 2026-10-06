@@ -1,22 +1,10 @@
 import { anthropicRequests, expect, resetAnthropic, test } from './fixtures';
+import { cards, savedNodesText, send } from './helpers';
 import type { Page } from '@playwright/test';
-
-const cards = (page: Page) => page.locator('article[data-node-id]');
-
-async function send(page: Page, prompt: string, { wait = true } = {}) {
-	const before = await cards(page).count();
-	await page.getByLabel('Message').fill(prompt);
-	await page.getByLabel('Message').press('Enter');
-	await expect(cards(page)).toHaveCount(before + 1);
-	const card = cards(page).last();
-	const id = (await card.getAttribute('data-node-id'))!;
-	if (wait) await expect(card).toHaveAttribute('data-status', 'complete', { timeout: 30_000 });
-	return id;
-}
 
 /** Waits until the canvas load returns `needle` — i.e. the saver has flushed. */
 async function waitSaved(page: Page, needle: string) {
-	await expect.poll(async () => (await page.request.get('/canvas/__data.json')).text(), { timeout: 15_000 }).toContain(needle);
+	await expect.poll(() => savedNodesText(page), { timeout: 15_000 }).toContain(needle);
 }
 
 test('without a key, the canvas sends you to connect one', async ({ page, signIn }) => {

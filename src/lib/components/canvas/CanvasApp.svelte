@@ -11,8 +11,8 @@
 	import Composer from './Composer.svelte';
 	import TopBar from './TopBar.svelte';
 
-	type Data = { nodes: NodeWire[]; view: ViewWire | null; email: string; models: readonly ModelSpec[]; defaultModelId: string };
-	let { data }: { data: Data } = $props();
+	type Data = { view: ViewWire | null; email: string; models: readonly ModelSpec[]; defaultModelId: string };
+	let { data, nodes }: { data: Data; nodes: NodeWire[] } = $props();
 
 	function initialModel(): string {
 		try {
@@ -25,7 +25,7 @@
 	}
 
 	// Seeded once from the load; the store owns the canvas from then on.
-	const store = untrack(() => new CanvasStore({ nodes: data.nodes, view: data.view, model: initialModel() }));
+	const store = untrack(() => new CanvasStore({ nodes, view: data.view, model: initialModel() }));
 	provideCanvas(store);
 	let composer = $state<ReturnType<typeof Composer>>();
 	onMount(() => {

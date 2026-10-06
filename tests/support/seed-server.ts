@@ -9,10 +9,10 @@ import { saveKey } from '../../src/lib/server/keys';
 import { POLICIES } from '../../src/lib/server/rate-limit';
 import { GOOD_KEY } from './fake-anthropic';
 
-export type SeedRequest = { key?: boolean; nodes?: number; chatUsed?: number };
+export type SeedRequest = { key?: boolean; nodes?: number; chatUsed?: number; thinkingChars?: number };
 export type SeedResponse = { email: string; token: string; userId: string };
 
-export async function seedUser({ key = true, nodes = 0, chatUsed = 0 }: SeedRequest): Promise<SeedResponse> {
+export async function seedUser({ key = true, nodes = 0, chatUsed = 0, thinkingChars = 0 }: SeedRequest): Promise<SeedResponse> {
 	const email = `seed-${randomBytes(6).toString('hex')}@e2e.test`;
 	const user = await queryOne<{ id: string }>('insert into users (email, password_hash) values ($1, $2) returning id', [
 		email,
@@ -25,9 +25,19 @@ export async function seedUser({ key = true, nodes = 0, chatUsed = 0 }: SeedRequ
 		const id = randomUUID();
 		const parentId = i === 0 ? null : ids[Math.floor((i - 1) / 2)];
 		await query(
-			`insert into nodes (id, user_id, parent_id, prompt, response, status, x, y, position_mode, created_at, updated_at)
-			 values ($1, $2, $3, $4, $5, 'complete', $6, $7, 'auto', now() + ($8 || ' milliseconds')::interval, now())`,
-			[id, userId, parentId, `Seeded question ${i + 1}`, 'Seeded answer. '.repeat(20 + (i % 5) * 12), (i % 10) * 520, Math.floor(i / 10) * 420, String(i)]
+			`insert into nodes (id, user_id, parent_id, prompt, response, thinking, status, x, y, position_mode, created_at, updated_at)
+			 values ($1, $2, $3, $4, $5, $6, 'complete', $7, $8, 'auto', now() + ($9 || ' milliseconds')::interval, now())`,
+			[
+				id,
+				userId,
+				parentId,
+				`Seeded question ${i + 1}`,
+				'Seeded answer. '.repeat(20 + (i % 5) * 12),
+				thinkingChars > 0 ? 'Seeded reasoning. '.repeat(Math.ceil(thinkingChars / 18)).slice(0, thinkingChars) : '',
+				(i % 10) * 520,
+				Math.floor(i / 10) * 420,
+				String(i)
+			]
 		);
 		ids.push(id);
 	}

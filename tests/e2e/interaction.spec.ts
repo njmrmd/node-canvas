@@ -1,61 +1,5 @@
 import { expect, test } from './fixtures';
-import type { Page } from '@playwright/test';
-
-const cards = (page: Page) => page.locator('article[data-node-id]');
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function send(page: Page, prompt: string, wait = true) {
-	const target = page.getByTestId('composer-target');
-	const previous = await target.getAttribute('data-target-id');
-	await page.getByLabel('Message').fill(prompt);
-	await page.getByLabel('Message').press('Enter');
-	// Sending always points the composer at the new node. Counting or picking cards from the DOM would
-	// not do: Svelte Flow renders only the cards in view, in its own order (a card that scrolls out and
-	// back in moves to the end), so the rendered cards are not the list of nodes.
-	await expect(target).not.toHaveAttribute('data-target-id', previous ?? '');
-	const id = (await target.getAttribute('data-target-id'))!;
-	const card = page.locator(`article[data-node-id="${id}"]`);
-	await expect(card).toBeVisible();
-	if (wait) await expect(card).toHaveAttribute('data-status', 'complete', { timeout: 30_000 });
-	return id;
-}
-
-async function viewport(page: Page) {
-	// DOMMatrixReadOnly is a browser global, so the parse has to run inside the page.
-	return page.locator('.svelte-flow__viewport').evaluate((el) => {
-		const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
-		return { x: Math.round(m.e), y: Math.round(m.f), zoom: Math.round(m.a * 1000) / 1000 };
-	});
-}
-
-/** Resolves once the viewport has stopped moving (the follow animation that frames a new card). */
-async function settled(page: Page) {
-	let last = JSON.stringify(await viewport(page));
-	for (let stable = 0; stable < 3; ) {
-		await sleep(150);
-		const now = JSON.stringify(await viewport(page));
-		stable = now === last ? stable + 1 : 0;
-		last = now;
-	}
-}
-
-async function emptyCanvasPoint(page: Page) {
-	const point = await page.evaluate(() => {
-		const pane = document.querySelector('.svelte-flow__pane')!;
-		const r = pane.getBoundingClientRect();
-		for (let y = r.top + 60; y < r.bottom - 60; y += 29)
-			for (let x = r.left + 60; x < r.right - 260; x += 41)
-				if (document.elementFromPoint(x, y)?.classList.contains('svelte-flow__pane')) return { x, y };
-		return null;
-	});
-	if (!point) throw new Error('no empty canvas point on screen');
-	return point;
-}
-
-async function fit(page: Page) {
-	await page.getByRole('button', { name: 'Fit', exact: true }).click();
-	await sleep(400);
-}
+import { cards, emptyCanvasPoint, fit, savedNodesText, send, settled, sleep, viewport } from './helpers';
 
 test('Branch binds the composer to the chosen node, every time', async ({ page, signIn }) => {
 	await signIn();
@@ -105,7 +49,7 @@ test('wheel over a card body scrolls it; over the canvas it zooms', async ({ pag
 test('a new node is framed and followed while it streams, until the user pans', async ({ page, signIn }) => {
 	await signIn();
 	await page.goto('/canvas');
-	const id = await send(page, '[slow][long] follow me', false);
+	const id = await send(page, '[slow][long] follow me', { wait: false });
 	const inView = () =>
 		page.evaluate((id) => {
 			const card = document.querySelector(`[data-node-id="${id}"]`)!.getBoundingClientRect();
@@ -143,7 +87,7 @@ test('dragging a card moves it and the position survives a reload', async ({ pag
 	await page.mouse.up();
 	const moved = (await page.locator(`.svelte-flow__node[data-id="${id}"]`).boundingBox())!;
 	expect(moved.x - before.x).toBeGreaterThan(130);
-	await expect.poll(async () => (await page.request.get('/canvas/__data.json')).text()).toContain('"manual"');
+	await expect.poll(() => savedNodesText(page)).toContain('"manual"');
 	await page.reload();
 	const reloaded = (await page.locator(`.svelte-flow__node[data-id="${id}"]`).boundingBox())!;
 	expect(Math.abs(reloaded.x - moved.x)).toBeLessThan(4);
@@ -152,7 +96,7 @@ test('dragging a card moves it and the position survives a reload', async ({ pag
 test('dragging a streaming card stops auto-follow, so the viewport stays put', async ({ page, signIn }) => {
 	await signIn();
 	await page.goto('/canvas');
-	const id = await send(page, '[slow][long] drag me while I stream', false);
+	const id = await send(page, '[slow][long] drag me while I stream', { wait: false });
 	await settled(page);
 	const before = await viewport(page);
 	// [slow][long] streams for ~30 s, so it is still growing through the drag and the wait below.
