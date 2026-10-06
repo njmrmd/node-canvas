@@ -15,7 +15,7 @@ const FENCE = /```[^\n]*\n([\s\S]*?)```/g;
 const ORDERED_ITEM = /^\s*(\d+)\.\s+(.*)$/;
 const ANY_ITEM = /^\s*(?:[-*]|\d+\.)\s+(.*)$/;
 const INLINE = /(\*\*[^*]+\*\*|`[^`]+`)/g;
-const BLANK = /\n[ \t]*\n/g;
+const BLANK = /\n\s*\n/g;
 
 export function parseInline(text: string): Inline[] {
 	return text
@@ -31,13 +31,22 @@ export function parseInline(text: string): Inline[] {
 /**
  * One blank-line-separated chunk of prose: runs of item lines become a list (any marker, at any
  * indent — nested items are flattened), and the lines between them become paragraphs.
+ * Only the first line of a chunk can start a list with any number. Inside a paragraph,
+ * only bullets (-/*) or ordered items numbered exactly 1 can continue it (CommonMark).
  */
 function parseProse(chunk: string): Block[] {
 	const lines = chunk.split('\n').filter((line) => line.trim() !== '');
 	const blocks: Block[] = [];
 	let i = 0;
 	while (i < lines.length) {
-		if (ANY_ITEM.test(lines[i])) {
+		const atStart = blocks.length === 0; // First block of this chunk
+		const isBullet = /^\s*[-*]\s/.test(lines[i]);
+		const isOrderedOne = /^\s*1\.\s/.test(lines[i]);
+		const isAnyItem = ANY_ITEM.test(lines[i]);
+		// At start of chunk, any item starts a list; inside paragraph, only bullets or ordered 1
+		const startsItem = atStart ? isAnyItem : (isBullet || isOrderedOne);
+
+		if (startsItem) {
 			const first = lines[i].match(ORDERED_ITEM);
 			const items: Inline[][] = [];
 			while (i < lines.length && ANY_ITEM.test(lines[i])) items.push(parseInline(lines[i++].match(ANY_ITEM)![1]));
@@ -45,7 +54,12 @@ function parseProse(chunk: string): Block[] {
 			blocks.push(first && start !== 1 ? { kind: 'list', ordered: true, start, items } : { kind: 'list', ordered: !!first, items });
 		} else {
 			const paragraph: string[] = [];
-			while (i < lines.length && !ANY_ITEM.test(lines[i])) paragraph.push(lines[i++]);
+			while (i < lines.length) {
+				const isBullet = /^\s*[-*]\s/.test(lines[i]);
+				const isOrderedOne = /^\s*1\.\s/.test(lines[i]);
+				if (isBullet || isOrderedOne) break;
+				paragraph.push(lines[i++]);
+			}
 			blocks.push({ kind: 'paragraph', inline: parseInline(paragraph.join(' ')) });
 		}
 	}
@@ -86,7 +100,7 @@ export class MarkdownStream {
 	parsedChars = 0;
 
 	update(text: string): Block[] {
-		if (!text.startsWith(this.source)) {
+		if (text.slice(0, this.source.length) !== this.source) {
 			this.boundary = 0;
 			this.stable = [];
 			this.fenceEnd = 0;
@@ -106,6 +120,7 @@ export class MarkdownStream {
 
 	/** The furthest point the text can be cut so that both halves parse as the whole does. */
 	private safeCut(text: string): number {
+		// Scan for closed fences starting from the last known fence end, to find new fences as text grows.
 		FENCE.lastIndex = this.fenceEnd;
 		while (FENCE.exec(text) !== null) this.fenceEnd = FENCE.lastIndex;
 		// A fence that has opened but not closed may still swallow anything after it.

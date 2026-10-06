@@ -75,6 +75,16 @@ describe('lists', () => {
 			items: [[{ kind: 'text', text: 'Parent' }], [{ kind: 'text', text: 'child' }], [{ kind: 'text', text: 'Next' }]]
 		});
 	});
+
+	it('a hard-wrapped number does not start a list mid-paragraph', () => {
+		assert.deepEqual(parseMarkdown('The war ended in\n1945. Then it was over.'), [
+			{ kind: 'paragraph', inline: [{ kind: 'text', text: 'The war ended in 1945. Then it was over.' }] }
+		]);
+		assert.deepEqual(parseMarkdown('Steps:\n1. one\n2. two'), [
+			{ kind: 'paragraph', inline: [{ kind: 'text', text: 'Steps:' }] },
+			{ kind: 'list', ordered: true, items: [[{ kind: 'text', text: 'one' }], [{ kind: 'text', text: 'two' }]] }
+		]);
+	});
 });
 
 describe('MarkdownStream', () => {
@@ -82,7 +92,9 @@ describe('MarkdownStream', () => {
 		'Intro paragraph.\n\nSecond one with **bold** and `code`.\n\n1. one\n2. two\n\n- a\n- b',
 		'Before.\n\n```js\nconst x = 1;\n\nconst y = 2;\n```\n\nAfter the fence.\n\nMore.',
 		'Text ``` mid-line on purpose\n\n```\nopen fence that never closes\n\nstill inside',
-		'Para one\nwrapped line.\n\n\n\nAfter several blank lines.\n\n**bold across\n\nblank** stays text.'
+		'Para one\nwrapped line.\n\n\n\nAfter several blank lines.\n\n**bold across\n\nblank** stays text.',
+		'a\n \nb\n\t\nc\n\n```\nx\n \ny\n```\n\t\nz',
+		'Before.\r\n\r\n```js\r\nconst x = 1;\r\n\r\nconst y = 2;\r\n```\r\n\r\nAfter the fence.\r\n\r\nMore.'
 	];
 	for (const [n, sample] of samples.entries()) {
 		it(`matches a full parse at every step, whatever the chunk size (sample ${n + 1})`, () => {
@@ -100,6 +112,14 @@ describe('MarkdownStream', () => {
 		const stream = new MarkdownStream();
 		stream.update('First.\n\nSecond.');
 		assert.deepEqual(stream.update('Other.'), parseMarkdown('Other.'));
+	});
+
+	it('restarts when text changes an earlier character without growing', () => {
+		const stream = new MarkdownStream();
+		const text1 = 'First.\n\nSecond.';
+		stream.update(text1);
+		const text2 = 'Fxrst.\n\nSecond.';
+		assert.deepEqual(stream.update(text2), parseMarkdown(text2));
 	});
 
 	it('re-parses only the unfinished tail as a long reply streams in', () => {
