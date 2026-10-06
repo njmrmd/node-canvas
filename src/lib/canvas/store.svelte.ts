@@ -67,6 +67,7 @@ export class CanvasStore {
 			depthOf: (id) => (this.graph.nodesById[id] ? pathToRoot(this.graph, id).length : 0),
 			getView: () => ({ viewport: this.viewport, targetNodeId: this.target }),
 			put: (body: SaveBody, keepalive: boolean) => apiFetch<{ rejected: string[] }>('/api/nodes', { method: 'PUT', body, keepalive }),
+			remove: (id: string, keepalive: boolean) => apiFetch<void>(`/api/nodes/${id}`, { method: 'DELETE', keepalive }),
 			isOnline: () => this.online,
 			onError: (message) => (this.saveError = message),
 			priority: () => this.graph.nodeIds.filter((id) => this.graph.nodesById[id].status === 'streaming'),

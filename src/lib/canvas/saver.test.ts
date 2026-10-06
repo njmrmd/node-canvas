@@ -19,7 +19,9 @@ function harness(nodes: Record<string, NodeWire>, depth: Record<string, number> 
 	let failNext: unknown = null;
 	let failTimes = 0;
 	let online = true;
-	const view: ViewWire = { viewport: { x: 0, y: 0, zoom: 1 }, targetNodeId: null };
+	let view: ViewWire = { viewport: { x: 0, y: 0, zoom: 1 }, targetNodeId: null };
+	const removals: { id: string; keepalive: boolean }[] = [];
+	let removeFails: unknown = null;
 	const deps: SaverDeps = {
 		getNode: (id) => nodes[id] ?? null,
 		depthOf: (id) => depth[id] ?? 0,
@@ -33,6 +35,14 @@ function harness(nodes: Record<string, NodeWire>, depth: Record<string, number> 
 			if (body.upserts.some((n) => refused.has(n.id))) throw { code: 'invalid_request' };
 			sent.push({ body, keepalive });
 			return { rejected: [] };
+		},
+		remove: async (id, keepalive) => {
+			if (removeFails) {
+				const e = removeFails;
+				removeFails = null;
+				throw e;
+			}
+			removals.push({ id, keepalive });
 		},
 		isOnline: () => online,
 		onError: (m) => errors.push(m),
@@ -53,7 +63,10 @@ function harness(nodes: Record<string, NodeWire>, depth: Record<string, number> 
 		/** The server refuses every request that carries this node, until `allow`. */
 		refuse: (id: string) => refused.add(id),
 		allow: (id: string) => refused.delete(id),
-		setOnline: (v: boolean) => (online = v)
+		setOnline: (v: boolean) => (online = v),
+		removals,
+		failRemove: (e: unknown) => (removeFails = e),
+		setTarget: (id: string | null) => (view = { ...view, targetNodeId: id })
 	};
 }
 
@@ -269,6 +282,7 @@ describe('Saver', () => {
 			depthOf: () => 0,
 			getView: () => ({ viewport: { x: 0, y: 0, zoom: 1 }, targetNodeId: null }),
 			put: async () => ({ rejected: [] }),
+			remove: async () => {},
 			isOnline: () => true,
 			onError: () => {},
 			priority: () => [],
@@ -287,6 +301,7 @@ describe('Saver', () => {
 			depthOf: () => 0,
 			getView: () => ({ viewport: { x: 0, y: 0, zoom: 1 }, targetNodeId: null }),
 			put: async () => ({ rejected: [] }),
+			remove: async () => {},
 			isOnline: () => true,
 			onError: () => {},
 			priority: () => [],
@@ -419,5 +434,117 @@ describe('Saver', () => {
 		await h.saver.flush();
 		assert.deepEqual(h.errors, ['not saved', null]);
 		assert.equal(h.saver.pending, 0);
+	});
+
+	it('sends a pending delete after the flush saves, and never saves a node deleted before its first save', async () => {
+		const nodes: Record<string, NodeWire> = { keep: node('keep'), gone: node('gone') };
+		const h = harness(nodes);
+		h.saver.markNode('keep');
+		h.saver.markNode('gone');
+		delete nodes.gone;
+		h.saver.markDeleted('gone');
+		await h.saver.flush();
+		assert.deepEqual(h.sent.map((s) => s.body.upserts.map((n) => n.id)), [['keep']]);
+		assert.deepEqual(h.removals, [{ id: 'gone', keepalive: false }]);
+		assert.equal(h.saver.pending, 0);
+	});
+
+	it('Undo before the flush means the server never hears of the delete', async () => {
+		const h = harness({ a: node('a') });
+		h.saver.markDeleted('a');
+		h.saver.cancelDeletion('a');
+		h.saver.markNode('a');
+		await h.saver.flush();
+		assert.deepEqual(h.removals, []);
+		assert.deepEqual(h.sent.map((s) => s.body.upserts.map((n) => n.id)), [['a']]);
+	});
+
+	it('keeps a delete pending through a network failure, and sends it on the next flush', async () => {
+		const h = harness({});
+		h.saver.markDeleted('x');
+		h.failRemove({ code: 'network' });
+		await h.saver.flush();
+		assert.deepEqual(h.removals, []);
+		assert.deepEqual(h.errors, [null], 'a network failure raises no banner');
+		assert.equal(h.saver.pending, 1);
+		await h.saver.flush();
+		assert.deepEqual(h.removals, [{ id: 'x', keepalive: false }]);
+		assert.equal(h.saver.pending, 0);
+	});
+
+	it('raises the banner when the server refuses a delete, and keeps it pending', async () => {
+		const h = harness({});
+		h.saver.markDeleted('x');
+		h.failRemove({ code: 'internal_error' });
+		await h.saver.flush();
+		assert.deepEqual(h.errors, ['not saved']);
+		assert.equal(h.saver.pending, 1);
+	});
+
+	it('the unload save also sends pending deletes, with keepalive, and keeps them pending', async () => {
+		const h = harness({ a: node('a') });
+		h.saver.markNode('a');
+		h.saver.markDeleted('gone');
+		await h.saver.flush({ keepalive: true });
+		assert.deepEqual(h.removals, [{ id: 'gone', keepalive: true }]);
+		assert.ok(h.sent.some((s) => s.keepalive && s.body.upserts.some((n) => n.id === 'a')));
+		assert.equal(h.saver.pending, 2, 'the regular flush still owns them');
+	});
+
+	it('a second unload save while one is in flight sends nothing more', async () => {
+		const puts: boolean[] = [];
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => (release = resolve));
+		const saver = new Saver({
+			getNode: (id) => (id === 'a' ? node('a') : null),
+			depthOf: () => 0,
+			getView: () => ({ viewport: { x: 0, y: 0, zoom: 1 }, targetNodeId: null }),
+			put: async (_body, keepalive) => {
+				puts.push(keepalive);
+				await held;
+				return { rejected: [] };
+			},
+			remove: async () => {},
+			isOnline: () => true,
+			onError: () => {},
+			priority: () => [],
+			failureMessage: 'not saved'
+		});
+		saver.markNode('a');
+		const first = saver.flush({ keepalive: true });
+		const second = saver.flush({ keepalive: true });
+		release();
+		await Promise.all([first, second]);
+		assert.deepEqual(puts, [true]);
+	});
+
+	it('nodes sent alone take turns under the cap, so a node the server now accepts is not starved', async () => {
+		const nodes: Record<string, NodeWire> = {};
+		for (let i = 1; i <= 10; i++) nodes[`bad${i}`] = node(`bad${i}`, { createdAt: i });
+		nodes.late = node('late', { createdAt: 11 });
+		const h = harness(nodes);
+		for (const id of Object.keys(nodes)) {
+			h.refuse(id);
+			h.saver.markNode(id);
+		}
+		await h.saver.flush(); // the batch is refused; bad1–bad10 go alone and are refused; late waits (cap)
+		await h.saver.flush(); // late is refused on its own; bad1–bad10 are refused again
+		h.allow('late');
+		await h.saver.flush(); // late was tried least recently, so it goes first
+		assert.ok(h.sent.some((s) => s.body.upserts.length === 1 && s.body.upserts[0].id === 'late'), 'late was saved');
+	});
+
+	it('holds the view back while its target node is not saved, then sends it', async () => {
+		const h = harness({ t: node('t') });
+		h.refuse('t');
+		h.saver.markNode('t');
+		h.setTarget('t');
+		h.saver.markView();
+		await h.saver.flush();
+		await h.saver.flush();
+		assert.equal(h.sent.some((s) => s.body.view), false, 'a view naming an unsaved node would store no target');
+		h.allow('t');
+		await h.saver.flush();
+		assert.ok(h.sent.some((s) => s.body.view?.targetNodeId === 't'));
 	});
 });

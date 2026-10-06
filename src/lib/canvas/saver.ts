@@ -7,6 +7,8 @@ export type SaverDeps = {
 	depthOf(id: string): number;
 	getView(): ViewWire;
 	put(body: SaveBody, keepalive: boolean): Promise<{ rejected: string[] }>;
+	/** `DELETE /api/nodes/:id` — the server removes the node and everything below it. */
+	remove(id: string, keepalive: boolean): Promise<void>;
 	isOnline(): boolean;
 	/** The banner: a message while saves fail for a non-network reason, null once they succeed. */
 	onError(message: string | null): void;
@@ -37,7 +39,7 @@ const classify = (error: unknown): Attempt => {
 	return code === 'invalid_request' || code === 'payload_too_large' ? 'refused' : 'stopped';
 };
 
-/** Remembers which nodes changed and sends only those, parents first. */
+/** Remembers which nodes changed, and which branches were deleted, and tells the server — parents first. */
 export class Saver {
 	private dirty = new Set<string>();
 	private viewDirty = false;
@@ -46,6 +48,12 @@ export class Saver {
 	private inFlightView = false;
 	/** Nodes the server refused when sent alone: sent one per request until it takes them. */
 	private suspects = new Set<string>();
+	/** When each node was last sent alone (a counter): the least recent goes first, so none starves under the cap. */
+	private suspectTried = new Map<string, number>();
+	private tries = 0;
+	/** Roots of deleted branches the server has not been told about yet. */
+	private deletions = new Set<string>();
+	private keepaliveInFlight: Promise<void> | null = null;
 	private timer: ReturnType<typeof setInterval> | null = null;
 
 	constructor(
@@ -64,10 +72,19 @@ export class Saver {
 		this.viewDirty = true;
 	}
 
+	/** Queues `DELETE /api/nodes/:id`. It goes after the next flush's saves, so it never races one. */
+	markDeleted(id: string): void {
+		this.deletions.add(id);
+	}
+
+	/** Undo before the delete went out: the server never hears of it. (After, the restored nodes are saved again.) */
+	cancelDeletion(id: string): void {
+		this.deletions.delete(id);
+	}
+
 	get pending(): number {
-		const allDirtyIds = new Set([...this.dirty, ...this.inFlightIds]);
-		const totalView = this.viewDirty || this.inFlightView ? 1 : 0;
-		return allDirtyIds.size + totalView;
+		const ids = new Set([...this.dirty, ...this.inFlightIds]);
+		return ids.size + (this.viewDirty || this.inFlightView ? 1 : 0) + this.deletions.size;
 	}
 
 	start(): void {
@@ -80,24 +97,28 @@ export class Saver {
 	}
 
 	/**
-	 * The requests a flush would send now: parents first, the view with the last batch, then any node
-	 * the server refused before, alone, so it cannot sink a batch again. Vanished nodes are dropped.
+	 * The requests a flush would send now: parents first, in batches; then any node the server refused
+	 * before, alone, least recently tried first; then the view — with the last batch when nothing goes
+	 * alone, otherwise on its own after them, so it never names a node the server does not have yet.
+	 * Vanished nodes are dropped.
 	 */
 	batches(): SaveBody[] {
 		const nodes: NodeWire[] = [];
 		for (const id of this.dirty) {
 			const n = this.deps.getNode(id);
 			if (n) nodes.push(n);
-			else {
-				this.dirty.delete(id);
-				this.suspects.delete(id);
-			}
+			else this.forget(id);
 		}
-		nodes.sort((a, b) => this.deps.depthOf(a.id) - this.deps.depthOf(b.id) || a.createdAt - b.createdAt);
+		const order = (a: NodeWire, b: NodeWire) => this.deps.depthOf(a.id) - this.deps.depthOf(b.id) || a.createdAt - b.createdAt;
+		nodes.sort(order);
+		const suspects = nodes
+			.filter((n) => this.suspects.has(n.id))
+			.sort((a, b) => (this.suspectTried.get(a.id) ?? 0) - (this.suspectTried.get(b.id) ?? 0) || order(a, b));
 		const out: SaveBody[] = [];
 		let current: SaveBody = { upserts: [] };
 		let size = bytes(current);
-		for (const n of nodes.filter((n) => !this.suspects.has(n.id))) {
+		for (const n of nodes) {
+			if (this.suspects.has(n.id)) continue;
 			const s = bytes(n) + 1;
 			if (current.upserts.length > 0 && (current.upserts.length >= MAX_BATCH_NODES || size + s > MAX_BATCH_BYTES)) {
 				out.push(current);
@@ -107,9 +128,11 @@ export class Saver {
 			current.upserts.push(n);
 			size += s;
 		}
-		if (this.viewDirty) current.view = this.deps.getView();
+		const view = this.viewDirty ? this.deps.getView() : null;
+		if (view && suspects.length === 0) current.view = view;
 		if (current.upserts.length > 0 || current.view) out.push(current);
-		for (const n of nodes) if (this.suspects.has(n.id)) out.push({ upserts: [n] });
+		for (const n of suspects) out.push({ upserts: [n] });
+		if (view && suspects.length > 0) out.push({ upserts: [], view });
 		return out;
 	}
 
@@ -119,6 +142,12 @@ export class Saver {
 		if (!this.deps.isOnline() || this.pending === 0) return Promise.resolve();
 		this.inFlight = this.run().finally(() => (this.inFlight = null));
 		return this.inFlight;
+	}
+
+	private forget(id: string): void {
+		this.dirty.delete(id);
+		this.suspects.delete(id);
+		this.suspectTried.delete(id);
 	}
 
 	private async run(): Promise<void> {
@@ -132,16 +161,28 @@ export class Saver {
 
 			// Single-node requests: a refused batch split up, and nodes refused on an earlier flush.
 			const singles = new Set(queue.filter((b) => b.upserts.length === 1 && !b.view && this.suspects.has(b.upserts[0].id)));
+			const unsaved = new Set<string>(); // nodes this flush could not save
 			let sentSingles = 0;
 			let failed = false; // something the server refused or could not take: the banner goes up
+			let halted = false; // the server, or the network, cannot take anything right now
 			while (queue.length > 0) {
 				const body = queue.shift()!;
 				if (singles.has(body) && sentSingles >= MAX_SINGLES_PER_FLUSH) {
 					this.requeue([body]);
+					unsaved.add(body.upserts[0].id);
 					failed = true;
 					continue;
 				}
-				if (singles.has(body)) sentSingles += 1;
+				// The view names its target; sent before that node is saved, the server would store none.
+				const target = body.view?.targetNodeId;
+				if (body.upserts.length === 0 && target && unsaved.has(target)) {
+					this.requeue([body]);
+					continue;
+				}
+				if (singles.has(body)) {
+					sentSingles += 1;
+					this.suspectTried.set(body.upserts[0].id, ++this.tries);
+				}
 				const result = await this.attempt(body);
 				if (result === 'saved') continue;
 				if (result === 'refused' && body.upserts.length + (body.view ? 1 : 0) > 1) {
@@ -153,6 +194,7 @@ export class Saver {
 				}
 				// Not confirmed goes back to dirty; changes made meanwhile are already there.
 				this.requeue([body]);
+				body.upserts.forEach((n) => unsaved.add(n.id));
 				if (result === 'refused') {
 					body.upserts.forEach((n) => this.suspects.add(n.id));
 					failed = true;
@@ -162,8 +204,10 @@ export class Saver {
 				this.requeue(queue);
 				if (result === 'network' && !failed) return;
 				failed = true;
+				halted = true;
 				break;
 			}
+			if (!halted && (await this.sendDeletions()) === 'failed') failed = true;
 			this.deps.onError(failed ? this.deps.failureMessage : null);
 		} catch {
 			// Unexpected error in deps (e.g., getView throws)
@@ -180,6 +224,20 @@ export class Saver {
 		}
 	}
 
+	/** After the saves: one DELETE per deleted branch. A network failure leaves the rest for next time. */
+	private async sendDeletions(): Promise<'ok' | 'failed' | 'offline'> {
+		for (const id of [...this.deletions]) {
+			if (!this.deletions.has(id)) continue; // undone meanwhile
+			try {
+				await this.deps.remove(id, false);
+				this.deletions.delete(id);
+			} catch (error) {
+				return classify(error) === 'network' ? 'offline' : 'failed';
+			}
+		}
+		return 'ok';
+	}
+
 	private async attempt(body: SaveBody): Promise<Attempt> {
 		try {
 			await this.deps.put(body, false);
@@ -189,6 +247,7 @@ export class Saver {
 		body.upserts.forEach((n) => {
 			this.inFlightIds.delete(n.id);
 			this.suspects.delete(n.id);
+			this.suspectTried.delete(n.id);
 		});
 		if (body.view) this.inFlightView = false;
 		return 'saved';
@@ -207,16 +266,24 @@ export class Saver {
 		}
 	}
 
-	/** Unload path: one request under the browser's keepalive cap; nothing is cleared. */
-	private async flushKeepalive(): Promise<void> {
-		try {
-			await this.flushKeepaliveImpl();
-		} catch {
-			// Never reject on unload path; swallow errors from getNode/getView
-		}
+	/**
+	 * Unload path: one request under the browser's keepalive cap; nothing is cleared. A tab closing fires
+	 * visibilitychange → hidden and then pagehide, and the two share the browser's 64 KB keepalive
+	 * budget, so while one unload save is in flight a second sends nothing more.
+	 */
+	private flushKeepalive(): Promise<void> {
+		this.keepaliveInFlight ??= this.flushKeepaliveImpl()
+			.catch(() => {
+				// Never reject on the unload path; swallow errors from getNode/getView
+			})
+			.finally(() => (this.keepaliveInFlight = null));
+		return this.keepaliveInFlight;
 	}
 
 	private async flushKeepaliveImpl(): Promise<void> {
+		// Deletes carry no body, so they cost the keepalive budget nothing: send them first.
+		for (const id of this.deletions) void this.deps.remove(id, true).catch(() => {});
+
 		// Candidates = dirty ∪ inFlight
 		const candidates = new Set([...this.dirty, ...this.inFlightIds]);
 		const first = this.deps.priority().filter((id) => candidates.has(id));
@@ -256,8 +323,7 @@ export class Saver {
 			for (const cid of chain) {
 				const n = this.deps.getNode(cid);
 				if (!n) continue;
-				const s = bytes(n) + 1;
-				chainSize += s;
+				chainSize += bytes(n) + 1;
 				nodes.push(n);
 			}
 
@@ -279,6 +345,6 @@ export class Saver {
 		body.upserts.sort((a, b) => this.deps.depthOf(a.id) - this.deps.depthOf(b.id) || a.createdAt - b.createdAt);
 
 		if (body.upserts.length === 0 && !body.view) return;
-		await this.deps.put(body, true).catch(() => {});
+		await this.deps.put(body, true);
 	}
 }
