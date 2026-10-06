@@ -1,5 +1,14 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { fit, savedNodesText, send, settled, viewport } from './helpers';
+
+/** From one card's bottom to another's top, in flow units: negative when the lower one sits on the upper one. */
+async function flowGap(page: Page, upper: string, lower: string): Promise<number> {
+	const { zoom } = await viewport(page);
+	const u = await page.locator(`.svelte-flow__node[data-id="${upper}"]`).boundingBox();
+	const l = await page.locator(`.svelte-flow__node[data-id="${lower}"]`).boundingBox();
+	return u && l ? (l.y - (u.y + u.height)) / zoom : Number.NEGATIVE_INFINITY; // not drawn yet: poll again
+}
 
 test('dragging the corner resizes a card, and the size survives a reload', async ({ page, signIn }) => {
 	await signIn();
@@ -149,10 +158,74 @@ test('a streaming card resized to the minimum width keeps its Delete button insi
 	await page.mouse.move(handle.x + handle.width / 2 - 300, handle.y + handle.height / 2, { steps: 20 }); // past the 240 px minimum
 	await page.mouse.up();
 	await expect(card).toHaveCSS('width', '240px');
+	await expect(card).toHaveCSS('height', '120px');
 	const box = (await card.boundingBox())!;
 	const del = (await card.getByRole('button', { name: 'Delete' }).boundingBox())!;
 	expect(del.x).toBeGreaterThanOrEqual(box.x);
 	expect(del.y).toBeGreaterThanOrEqual(box.y);
 	expect(del.x + del.width).toBeLessThanOrEqual(box.x + box.width);
 	expect(del.y + del.height).toBeLessThanOrEqual(box.y + box.height);
+});
+
+test('a send to a hidden card that was the newest lays the reply below it, not on top of it', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const parent = await send(page, 'parent');
+	const tall = await send(page, '[long] tall newest'); // the composer now replies to it
+	await fit(page);
+	await page.locator(`article[data-node-id="${parent}"]`).getByRole('button', { name: 'Collapse', exact: true }).click();
+	await expect(page.locator(`article[data-node-id="${tall}"]`)).toHaveCount(0);
+	const next = await send(page, 'below the tall card');
+	await fit(page);
+	await expect.poll(() => flowGap(page, tall, next)).toBeGreaterThanOrEqual(0);
+});
+
+test("reopening after a reload lays a tall card's reply below it, not on top of it", async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const top = await send(page, 'top');
+	const middle = await send(page, '[long] a tall middle card');
+	const bottom = await send(page, 'bottom');
+	await fit(page);
+	await page.locator(`article[data-node-id="${top}"]`).getByRole('button', { name: 'Collapse', exact: true }).click();
+	await expect.poll(() => savedNodesText(page)).toContain('"collapsed":true');
+	await page.reload(); // the cards under the collapse are never drawn in this session
+	await page.locator(`article[data-node-id="${top}"]`).getByRole('button', { name: '2 hidden' }).click();
+	await fit(page);
+	await expect.poll(() => flowGap(page, middle, bottom)).toBeGreaterThanOrEqual(0);
+});
+
+test("Undo under a parent collapsed since lays the tall card's reply below it, not on top of it", async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const parent = await send(page, 'parent');
+	const tall = await send(page, '[long] a tall reply');
+	const under = await send(page, 'under the tall reply');
+	await fit(page);
+	await page.locator(`article[data-node-id="${parent}"]`).getByRole('button', { name: 'Branch' }).click();
+	const sibling = await send(page, 'a sibling');
+	await fit(page);
+	await page.locator(`article[data-node-id="${tall}"]`).getByRole('button', { name: 'Delete' }).click();
+	await page.locator(`article[data-node-id="${parent}"]`).getByRole('button', { name: 'Collapse', exact: true }).click();
+	await expect(page.locator(`article[data-node-id="${sibling}"]`)).toHaveCount(0);
+	await page.getByRole('button', { name: 'Undo' }).click();
+	await fit(page);
+	await expect.poll(() => flowGap(page, tall, under)).toBeGreaterThanOrEqual(0);
+});
+
+test('a drag that ends where it began still saves the size it gave the card', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const id = await send(page, 'there and back');
+	await settled(page);
+	const card = page.locator(`article[data-node-id="${id}"]`);
+	await card.hover();
+	const handle = (await card.locator('.svelte-flow__resize-control').boundingBox())!;
+	const [x, y] = [handle.x + handle.width / 2, handle.y + handle.height / 2];
+	await page.mouse.move(x, y);
+	await page.mouse.down();
+	await page.mouse.move(x + 40, y, { steps: 8 });
+	await page.mouse.move(x, y, { steps: 8 });
+	await page.mouse.up();
+	await expect.poll(() => savedNodesText(page)).toMatch(/"width":\d/);
 });

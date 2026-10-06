@@ -83,6 +83,8 @@ export class CanvasStore {
 	saveError = $state<string | null>(null);
 	online = $state(true);
 	undo = $state.raw<UndoState | null>(null);
+	/** Set by a reopen: the card whose subtree was laid out before all of its cards had been drawn and measured. */
+	relayoutPending = $state<string | null>(null);
 	/** Children, and the cards a collapse hides — rebuilt only when the structure can have changed. */
 	readonly structure = $derived.by(() => {
 		void this.layoutVersion;
@@ -286,6 +288,8 @@ export class CanvasStore {
 		const top = pathToRoot(graph, id).find((n) => n.collapsed);
 		if (!top) return graph;
 		const opened = expandPath(graph, id);
+		// Cards never drawn in this session (after a reload, say) have no height yet: lay the subtree out again once they do.
+		this.relayoutPending = top.id;
 		return reflowChildrenOnCreate(opened, top.id, this.width, this.measure(), nodeWidthsFrom(opened, this.width));
 	}
 
@@ -386,6 +390,15 @@ export class CanvasStore {
 		if (!node || this.childCount(id) === 0) return;
 		const graph = node.collapsed ? this.openTo(this.graph, id) : setCollapsed(this.graph, id, true);
 		this.commit(graph);
+		this.layoutVersion++;
+	}
+
+	/** The canvas calls this once the reopened cards are measured: the subtree is laid out once more, with real heights. */
+	relayoutReopened(): void {
+		const id = this.relayoutPending;
+		this.relayoutPending = null;
+		if (!id || !this.graph.nodesById[id] || this.graph.nodesById[id].collapsed) return;
+		this.commit(reflowChildrenOnCreate(this.graph, id, this.width, this.measure(), nodeWidthsFrom(this.graph, this.width)));
 		this.layoutVersion++;
 	}
 

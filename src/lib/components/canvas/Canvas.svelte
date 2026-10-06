@@ -19,21 +19,21 @@
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- bookkeeping read only in rAF, never rendered
 	const framed = new Set<string>();
 
-	// The flow measures only the cards it draws. Keep each card's last height while it is hidden, so a subtree
-	// reopened by the chip, a send or Undo is laid out with real sizes rather than the 160 px default.
+	// The flow measures only the cards it draws. Keep each card's last height while it is hidden or deleted, so a
+	// subtree reopened by the chip, a send or Undo is laid out with real sizes rather than the 160 px default.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- a cache read by layout calls only, never rendered
 	const lastHeights = new Map<string, number>();
-	store.measure = () => {
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- a one-off snapshot, never observed
-		const heights = new Map<string, number>();
-		for (const id of store.graph.nodeIds) {
-			const h = flow.getInternalNode(id)?.measured.height ?? lastHeights.get(id);
-			if (h) {
-				lastHeights.set(id, h);
-				heights.set(id, h);
-			}
+	/** Copies the current height of each of these cards the flow has measured into the cache. */
+	function remember(ids: Iterable<string>) {
+		for (const id of ids) {
+			const h = flow.getInternalNode(id)?.measured.height;
+			if (h) lastHeights.set(id, h);
 		}
-		return heights;
+	}
+	// The whole cache, not only the graph's ids: Undo lays a restored branch out before the branch is back in the graph.
+	store.measure = () => {
+		remember(store.graph.nodeIds);
+		return new Map(lastHeights);
 	};
 	store.visibleCenter = () => {
 		const r = container!.getBoundingClientRect();
@@ -46,6 +46,7 @@
 		untrack(() => {
 			const graph = store.graph;
 			const { hidden } = store.structure;
+			remember(nodes.map((n) => n.id)); // the last moment a card about to be hidden or deleted is still drawn
 			const prev = new Map(nodes.map((n) => [n.id, n]));
 			nodes = graph.nodeIds
 				.filter((id) => !hidden.has(id))
@@ -62,6 +63,36 @@
 				.map((id) => ({ id: `e-${id}`, source: graph.nodesById[id].parentId!, target: id }));
 		});
 	});
+
+	// A reopened subtree is laid out with the heights the cache has, and a card never drawn in this session has none.
+	// Once its drawn cards are measured, the store lays it out once more: one pass per reopen, never per token. Cards
+	// off screen are not drawn under onlyRenderVisibleElements, so the wait gives up after 30 frames.
+	$effect(() => {
+		const id = store.relayoutPending;
+		if (!id) return;
+		let frames = 0;
+		let frame = requestAnimationFrame(function check() {
+			if (measuredBelow(id) || ++frames >= 30) store.relayoutReopened();
+			else frame = requestAnimationFrame(check);
+		});
+		return () => cancelAnimationFrame(frame);
+	});
+
+	/** Whether every drawn card below `id` has been measured. A card a nested collapse still hides is not drawn. */
+	function measuredBelow(id: string): boolean {
+		const { children, hidden } = store.structure;
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- a lookup local to this call, never rendered
+		const seen = new Set<string>();
+		const queue = [...(children.get(id) ?? [])];
+		while (queue.length > 0) {
+			const next = queue.pop()!;
+			if (hidden.has(next) || seen.has(next)) continue; // seen again only in a corrupted, cyclic graph
+			seen.add(next);
+			if (!flow.getInternalNode(next)?.measured.height) return false;
+			queue.push(...(children.get(next) ?? []));
+		}
+		return true;
+	}
 
 	// Frame a new node in the lower third once measured, then keep its growing bottom on screen.
 	$effect(() => {
