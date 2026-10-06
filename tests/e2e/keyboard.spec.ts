@@ -335,7 +335,7 @@ test('a held Enter on a card binds the composer and sends nothing', async ({ pag
 	await expect(cards(page)).toHaveCount(1);
 });
 
-test('keyboard-resizing a card taller than the view keeps its moving edge in view', async ({ page, signIn }) => {
+test('keyboard-resizing a card taller than the view keeps its moving edge in view, and a nudge barely moves the view', async ({ page, signIn }) => {
 	await signIn();
 	await page.goto('/canvas');
 	const id = await send(page, 'grow me past the view');
@@ -356,6 +356,34 @@ test('keyboard-resizing a card taller than the view keeps its moving edge in vie
 		expect(b.y, `${key}: the view did not jump to the card's top`).toBeLessThan(area.y);
 		expect((await viewport(page)).y, `${key}: the view did not move`).toBe(before.y);
 	}
+	// Its bottom still in view, a 16 px nudge up moves the card against a view that holds (at most by the nudge).
+	const before = await viewport(page);
+	await page.keyboard.press('Alt+ArrowUp');
+	await settled(page);
+	expect(Math.abs((await viewport(page)).y - before.y), 'Alt+ArrowUp moves the view no more than the nudge').toBeLessThanOrEqual(16 * before.zoom + 2);
+	await expect.poll(() => focused(page)).toBe(id);
+});
+
+test('with the linear view open, arrowing to a card under it brings the card out beside it', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const left = await send(page, 'the left root');
+	await page.getByRole('button', { name: 'New conversation' }).click();
+	const right = await send(page, 'the right root'); // a new root is placed to the right of the others
+	await fit(page);
+	await page.getByRole('button', { name: 'Linear view' }).click();
+	const panel = page.getByRole('region', { name: 'Linear view' });
+	await expect(panel).toBeVisible();
+	const p = (await panel.boundingBox())!;
+	const before = (await card(page, right).boundingBox())!;
+	expect(before.x + before.width / 2, 'the right root starts under the panel').toBeGreaterThan(p.x);
+	await card(page, left).getByTestId('card-body').click();
+	await expect.poll(() => focused(page)).toBe(left);
+	await page.keyboard.press('ArrowRight');
+	await expect.poll(() => focused(page)).toBe(right);
+	await settled(page);
+	const after = (await card(page, right).boundingBox())!;
+	expect(after.x + after.width).toBeLessThanOrEqual(p.x);
 });
 
 test('nudges keep the card clear of the open linear view', async ({ page, signIn }) => {
@@ -376,4 +404,23 @@ test('nudges keep the card clear of the open linear view', async ({ page, signIn
 	const b = (await card(page, id).boundingBox())!;
 	const p = (await panel.boundingBox())!;
 	expect(b.x + b.width).toBeLessThanOrEqual(p.x);
+});
+
+test('with the linear view open, a streaming reply is framed in the middle of the part that shows', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	await send(page, 'a parent beside the panel');
+	await settled(page);
+	await page.getByRole('button', { name: 'Linear view' }).click();
+	const panel = page.getByRole('region', { name: 'Linear view' });
+	await expect(panel).toBeVisible();
+	const id = await send(page, '[slow][long] a reply that keeps streaming', { wait: false });
+	const area = (await page.locator('.flow').boundingBox())!;
+	const p = (await panel.boundingBox())!;
+	const offCentre = async () => {
+		const b = (await card(page, id).boundingBox())!;
+		return Math.abs(b.x + b.width / 2 - (area.x + (p.x - area.x) / 2));
+	};
+	await expect.poll(offCentre).toBeLessThanOrEqual(2);
+	expect((await viewport(page)).zoom, 'the framing pan ran to its end').toBe(1);
 });

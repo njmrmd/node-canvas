@@ -132,19 +132,29 @@
 		requestAnimationFrame(() => follow(id));
 	});
 
+	/** How long the pan that frames a new card eases in. */
+	const FRAMING_MS = 250;
+	/** While that pan runs, the bottom-edge correction waits: an instant pan would cut it short of its target. */
+	let framingUntil = 0;
+
 	function follow(id: string) {
 		const internal = flow.getInternalNode(id);
 		const width = internal?.measured.width;
 		const height = internal?.measured.height;
 		if (!internal || !width || !height || !container || store.following !== id) return;
 		const rect = { ...internal.internals.positionAbsolute, width, height };
-		const size = { width: container.clientWidth, height: container.clientHeight };
+		const size = visibleSize(); // beside the linear view, not under it
 		const vp = flow.getViewport();
 		if (!framed.has(id)) {
 			framed.add(id);
-			void flow.setViewport(panToLowerThird(vp, rect, size), { duration: 250 });
+			framingUntil = performance.now() + FRAMING_MS + 100; // the ceiling, should the pan be interrupted and never end
+			void flow.setViewport(panToLowerThird(vp, rect, size), { duration: FRAMING_MS }).then(() => {
+				framingUntil = 0;
+				requestAnimationFrame(() => follow(id)); // the growth the correction skipped while the pan ran
+			});
 			return;
 		}
+		if (performance.now() < framingUntil) return;
 		const overflow = (rect.y + rect.height) * vp.zoom + vp.y - (size.height - 24);
 		if (overflow > 0) void flow.setViewport({ ...vp, y: vp.y - overflow });
 	}
@@ -168,7 +178,7 @@
 			height: internal?.measured.height ?? node.size?.height ?? 160
 		};
 		const vp = flow.getViewport();
-		const size = { width: container.clientWidth, height: container.clientHeight };
+		const size = visibleSize(); // a card under the open linear view is not in view: centre it beside the panel
 		if (!rectInView(vp, rect, size)) {
 			await flow.setViewport(focusOn(rect, size, vp.zoom, 0.5));
 			if (store.focusedId !== id) return; // a later move or click took over
@@ -237,19 +247,18 @@
 
 	/**
 	 * The pan along one axis, for a card spanning [start, end] of a view `size` px long that a command moved `delta`
-	 * along this axis. A keyboard resize moves the card's right or bottom edge; a nudge moves it all, led by the edge
-	 * it moves towards.
-	 * - Along the move, a card that fits stays KEEP_MARGIN px inside the view; one that does not keeps the edge the
-	 *   command moves inside, so a person reading the bottom of a tall card is not sent to its top.
-	 * - Across the move, the view pans only when less than KEEP_MARGIN px of the card would still show.
+	 * along this axis (a keyboard resize moves the card's right or bottom edge).
+	 * - Along the move, a card that fits stays KEEP_MARGIN px inside the view.
+	 * - A card that does not fit, resized, keeps the edge being resized inside: that is the edge the person watches.
+	 * - Otherwise (a nudge of a card that does not fit, and any card across the move) the view pans only when less
+	 *   than KEEP_MARGIN px of the card would still show, so the card moves against a view that holds.
 	 */
 	function panAlong(start: number, end: number, size: number, delta: number, resize: boolean): number {
 		const low = KEEP_MARGIN;
 		const high = size - KEEP_MARGIN;
-		if (delta === 0) return end < low ? low - end : start > high ? high - start : 0;
-		if (end - start <= high - low) return start < low ? low - start : end > high ? high - end : 0;
-		const edge = resize || delta > 0 ? end : start;
-		return edge < low ? low - edge : edge > high ? high - edge : 0;
+		if (delta !== 0 && end - start <= high - low) return start < low ? low - start : end > high ? high - end : 0;
+		if (delta !== 0 && resize) return end < low ? low - end : end > high ? high - end : 0;
+		return end < low ? low - end : start > high ? high - start : 0;
 	}
 
 	/** The commands a held key may repeat. */
