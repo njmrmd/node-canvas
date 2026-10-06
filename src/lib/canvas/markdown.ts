@@ -120,13 +120,16 @@ export class MarkdownStream {
 
 	/** The furthest point the text can be cut so that both halves parse as the whole does. */
 	private safeCut(text: string): number {
-		// Scan for closed fences starting from the last known fence end, to find new fences as text grows.
-		FENCE.lastIndex = this.fenceEnd;
+		// No ``` starts between the last closed fence and the boundary: a cut never passes the
+		// first opener after the last closed fence, the character before a cut is the "\n" that
+		// ends a blank line, and the text only grows (else update() restarts). So scanning from
+		// the later of the two finds every fence and opener a scan from the start would.
+		FENCE.lastIndex = Math.max(this.boundary, this.fenceEnd);
 		while (FENCE.exec(text) !== null) this.fenceEnd = FENCE.lastIndex;
-		// A fence that has opened but not closed may still swallow anything after it.
-		const opener = text.indexOf('```', this.fenceEnd);
-		const limit = opener === -1 ? text.length : opener;
 		const from = Math.max(this.boundary, this.fenceEnd);
+		// A fence that has opened but not closed may still swallow anything after it.
+		const opener = text.indexOf('```', from);
+		const limit = opener === -1 ? text.length : opener;
 		const region = text.slice(from, limit);
 		let cut = -1;
 		BLANK.lastIndex = 0;
