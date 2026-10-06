@@ -220,6 +220,7 @@ export class CanvasStore {
 	}
 
 	private apply(id: string, event: ChatStreamEvent): void {
+		if (event.type === 'ping') return; // the model started; onEvent already called activity()
 		if (!this.graph.nodesById[id]) return;
 		if (event.type === 'text') this.commit(appendText(this.graph, id, event.text));
 		else if (event.type === 'thinking') this.commit(appendThinking(this.graph, id, event.text));

@@ -6,6 +6,8 @@ export type ChatRole = 'user' | 'assistant';
 export type ChatMessage = { role: ChatRole; content: string };
 
 export type ChatStreamEvent =
+	/** The model has started (Anthropic's message_start). Carries nothing; it keeps the first-token watchdog quiet. */
+	| { type: 'ping' }
 	/** An increment of the visible answer. */
 	| { type: 'text'; text: string }
 	/** An increment of the summarized reasoning. Never the answer. */

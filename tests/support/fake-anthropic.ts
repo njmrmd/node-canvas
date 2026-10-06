@@ -44,6 +44,7 @@ function plan(prompt: string) {
 			: null,
 		text,
 		refuse: prompt.includes('[refuse]'),
+		failAfter: prompt.includes('[midfail]') ? 5 : null,
 		tokenMs: prompt.includes('[slow]') ? 60 : Number(process.env.FAKE_ANTHROPIC_TOKEN_MS ?? 3),
 		wordsPerDelta: prompt.includes('[huge]') ? 500 : 1
 	};
@@ -126,8 +127,12 @@ async function streamMessage(res: ServerResponse, body: Record<string, unknown>)
 		content_block: { type: 'text', text: '' }
 	});
 	const pieces = chunks(p.text, p.wordsPerDelta);
-	for (const piece of pieces) {
+	for (const [i, piece] of pieces.entries()) {
 		if (closed) return;
+		if (p.failAfter !== null && i === p.failAfter) {
+			sse(res, 'error', { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } });
+			return res.end();
+		}
 		sse(res, 'content_block_delta', {
 			type: 'content_block_delta',
 			index,

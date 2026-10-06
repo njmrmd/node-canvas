@@ -110,6 +110,10 @@ export async function* streamChat(options: {
 			{ signal: options.signal }
 		);
 		for await (const event of stream) {
+			if (event.type === 'message_start') {
+				yield { type: 'ping' };
+				continue;
+			}
 			if (event.type !== 'content_block_delta') continue;
 			if (event.delta.type === 'text_delta') yield { type: 'text', text: event.delta.text };
 			else if (event.delta.type === 'thinking_delta')
