@@ -57,7 +57,8 @@ describe('parseMarkdown', () => {
 		assert.deepEqual(parseMarkdown('1. a\r\n2. b'), [
 			{ kind: 'list', ordered: true, items: [[{ kind: 'text', text: 'a' }], [{ kind: 'text', text: 'b' }]] }
 		]);
-		assert.deepEqual(parseMarkdown('-a b\n- c').map((b) => b.kind), ['paragraph', 'list']);
+		assert.deepEqual(parseMarkdown('- a\u2028b\n- c').map((b) => b.kind), ['paragraph', 'list']);
+		assert.deepEqual(parseMarkdown('- a\r- b').map((b) => b.kind), ['paragraph']);
 	});
 
 	it('keeps numbering after a wrapped item line', () => {
