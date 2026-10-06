@@ -69,6 +69,7 @@
 </script>
 
 {#if node}
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex (the cards are a roving-tabindex composite: keyboard focus moves between them, spec §4) -->
 	<article
 		class="card"
 		class:target={isTarget}
@@ -77,6 +78,9 @@
 		data-node-id={id}
 		data-parent-id={node.parentId ?? ''}
 		data-status={node.status}
+		tabindex={store.rovingId === id ? 0 : -1}
+		aria-current={isTarget ? 'true' : undefined}
+		onfocusin={() => store.noteFocus(id)}
 		style:width="{width ?? store.width}px"
 		style:height={sized ? `${height}px` : undefined}
 	>
@@ -230,6 +234,10 @@
 	.card.target {
 		border-color: var(--cy-gold);
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--cy-gold) 40%, transparent);
+	}
+	.card:focus-visible {
+		outline: var(--focus-ring-width) solid var(--cy-gold);
+		outline-offset: var(--focus-ring-offset);
 	}
 	header {
 		display: flex;

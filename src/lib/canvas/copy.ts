@@ -155,6 +155,8 @@ const PORT_RULED = {
     "Nothing here yet. Send a message, or branch from a card, and its conversation shows here as text.",
   /* Plan 3: Copy all's failure (a refused clipboard) — the old app had no failure state. */
   "linearview.copyFailed": "Couldn't copy",
+  /* Plan 3: the visible 100% control spec §4 lists beside zoom in/out and fit. */
+  "zoom.reset": "Zoom to 100%",
 } as const;
 
 export const COPY = {

@@ -112,6 +112,19 @@ export class CanvasStore {
 	focusPath = $state(readFlag('nc:focusPath', true));
 	transcriptOpen = $state(false);
 	shortcutsOpen = $state(false);
+	/** The card keyboard commands act on — moved by arrows, Home and End, or a click. It is not the target. */
+	focusedId = $state<string | null>(null);
+	/** Bumped to ask the canvas to show `focusedId` and focus it, even when it is the same id again. */
+	focusRequest = $state(0);
+	/** Bumped to ask the composer to take the cursor (Enter or B on a card). */
+	composerRequest = $state(0);
+
+	/** The one tabbable card: the focused card, else the target, else the first root — never a hidden one. */
+	readonly rovingId = $derived.by(() => {
+		const { hidden, children } = this.structure;
+		for (const id of [this.focusedId, this.target]) if (id && this.graph.nodesById[id] && !hidden.has(id)) return id;
+		return children.get(null)?.[0] ?? null;
+	});
 
 	/** The root → target path, or null without a target. Rebuilt when the target or the structure changes, never per token. */
 	readonly pathIds = $derived.by(() => {
@@ -261,6 +274,50 @@ export class CanvasStore {
 	toggleFocusPath(): void {
 		this.focusPath = !this.focusPath;
 		writeFlag('nc:focusPath', this.focusPath);
+	}
+
+	/** Moves keyboard focus to a card; the canvas shows it and focuses it. Auto-follow stops: the reader is elsewhere. */
+	focusCard(id: string): void {
+		this.focusedId = id;
+		this.following = null;
+		this.focusRequest++;
+	}
+
+	/** DOM focus landed on a card (a click or Tab): remember it, nothing more. */
+	noteFocus(id: string): void {
+		this.focusedId = id;
+	}
+
+	/** Enter on a focused card: the composer replies to it from now on, and takes the cursor. */
+	bindComposer(id: string): void {
+		if (!this.graph.nodesById[id]) return;
+		this.target = id;
+		this.saver.markView();
+		this.composerRequest++;
+	}
+
+	/** `B`: what the card's Branch button does, then the cursor goes to the composer. */
+	branchFromCard(id: string): void {
+		const node = this.graph.nodesById[id];
+		if (!node || !canBranchFrom(node)) return;
+		this.branch(id);
+		this.composerRequest++;
+	}
+
+	/** Alt+arrows: moves a card by hand, so Tidy leaves it where it is put. */
+	nudge(id: string, dx: number, dy: number): void {
+		const node = this.graph.nodesById[id];
+		if (!node) return;
+		this.commit(moveNode(this.graph, id, { x: node.position.x + dx, y: node.position.y + dy }));
+		this.layoutVersion++;
+	}
+
+	/** Cmd/Ctrl+Alt+arrows: grows or shrinks a card from its current size. */
+	resizeBy(id: string, dw: number, dh: number): void {
+		const node = this.graph.nodesById[id];
+		if (!node || node.bodyCollapsed) return;
+		const current = node.size ?? { width: this.width, height: this.measure().get(id) ?? NODE_HEIGHT_MIN };
+		this.resized(id, { width: current.width + dw, height: current.height + dh });
 	}
 
 	branch(id: string): void {
@@ -484,6 +541,11 @@ export class CanvasStore {
 			this.saver.markView();
 		}
 		if (this.following && gone.has(this.following)) this.following = null;
+		if (this.focusedId && gone.has(this.focusedId)) {
+			const parentId = removed[0].parentId;
+			if (parentId) this.focusCard(parentId);
+			else this.focusedId = null;
+		}
 		this.saver.markDeleted(id);
 		this.setUndo({
 			rootId: id,

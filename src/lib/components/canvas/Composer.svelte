@@ -19,6 +19,11 @@
 		text = value;
 		field?.focus();
 	}
+
+	// Enter or B on a card hands the cursor to the composer.
+	$effect(() => {
+		if (store.composerRequest > 0) field?.focus();
+	});
 </script>
 
 <form
@@ -46,6 +51,11 @@
 				if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
 					e.preventDefault();
 					submit();
+				} else if (e.key === 'Escape') {
+					// Back to the card the composer replies to, so the keyboard carries on from there.
+					e.preventDefault();
+					field?.blur();
+					if (store.target) store.focusCard(store.target);
 				}
 			}}
 		></textarea>

@@ -8,6 +8,7 @@ test('cards off the path to the composer target are dimmed, and the toggle turns
 	const b = await send(page, 'its reply');
 	await expect(page.locator('.svelte-flow__edge.on-path')).toHaveCount(1);
 	await expect(page.locator('.svelte-flow__edge.on-path .svelte-flow__edge-path')).toHaveCSS('stroke-width', '2px');
+	await expect(page.locator('.svelte-flow__edge.on-path')).toHaveCSS('transition-property', 'opacity');
 	await page.getByRole('button', { name: 'New conversation' }).click();
 	const c = await send(page, 'second root');
 	const card = (id: string) => page.locator(`article[data-node-id="${id}"]`);
@@ -35,6 +36,9 @@ test('the linear view shows the path to the target and copies it', async ({ page
 	await page.getByRole('button', { name: 'Linear view' }).click();
 	const panel = page.getByRole('region', { name: 'Linear view' });
 	await expect(panel.locator('.you')).toHaveText(['question one', 'question two']);
+	await page.getByRole('button', { name: 'Focus path' }).click();
+	await expect(page.getByRole('button', { name: 'Focus path' })).toHaveAttribute('aria-pressed', 'false');
+	await page.getByRole('button', { name: 'Focus path' }).click();
 	await expect(panel.locator('.reply').first()).toContainText('Echo: question one.');
 	await panel.getByRole('button', { name: 'Copy all' }).click();
 	await expect(panel.getByRole('button', { name: 'Copied' })).toBeVisible();

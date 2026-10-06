@@ -1,9 +1,22 @@
 <script lang="ts">
-	import { Background, BackgroundVariant, Controls, MiniMap, SvelteFlow, useSvelteFlow, type Edge, type Node } from '@xyflow/svelte';
+	import {
+		Background,
+		BackgroundVariant,
+		ControlButton,
+		Controls,
+		MiniMap,
+		SvelteFlow,
+		useSvelteFlow,
+		type Edge,
+		type Node
+	} from '@xyflow/svelte';
 	import '@xyflow/svelte/dist/style.css';
 	import { untrack } from 'svelte';
+	import { copy } from '$lib/canvas/copy';
+	import { moveFocus } from '$lib/canvas/navigation';
+	import { resolveShortcut, type Command } from '$lib/canvas/shortcuts';
 	import { useCanvas } from '$lib/canvas/store.svelte';
-	import { panToLowerThird } from '$lib/canvas/viewport';
+	import { focusOn, panToLowerThird, rectInView, zoomAt, ZOOM_STEP_FACTOR, type Viewport } from '$lib/canvas/viewport';
 	import EmptyState from './EmptyState.svelte';
 	import NodeCard from './NodeCard.svelte';
 	import UndoToast from './UndoToast.svelte';
@@ -80,8 +93,9 @@
 	});
 
 	// A reopened subtree is laid out with the heights the cache has, and a card never drawn in this session has none.
-	// Once its drawn cards are measured, the store lays it out once more: one pass per reopen, never per token. Cards
-	// off screen are not drawn under onlyRenderVisibleElements, so the wait gives up after 30 frames.
+	// Once its drawn cards are measured, the store lays it out once more: one pass per reopen, never per token. Svelte
+	// Flow renders a card it has never measured once, wherever it sits, so this normally completes; the 30-frame cap
+	// is only a safety net.
 	$effect(() => {
 		const id = store.relayoutPending;
 		if (!id) return;
@@ -134,7 +148,130 @@
 		const overflow = (rect.y + rect.height) * vp.zoom + vp.y - (size.height - 24);
 		if (overflow > 0) void flow.setViewport({ ...vp, y: vp.y - overflow });
 	}
+
+	// Keyboard focus: show the card (off screen it is not even rendered), then give it DOM focus.
+	$effect(() => {
+		void store.focusRequest;
+		const id = untrack(() => store.focusedId);
+		if (id) untrack(() => void reveal(id));
+	});
+
+	async function reveal(id: string) {
+		const node = store.graph.nodesById[id];
+		if (!node || !container) return;
+		const internal = flow.getInternalNode(id);
+		const rect = {
+			x: node.position.x,
+			y: node.position.y,
+			width: internal?.measured.width ?? node.size?.width ?? store.width,
+			height: internal?.measured.height ?? node.size?.height ?? 160
+		};
+		const vp = flow.getViewport();
+		const size = { width: container.clientWidth, height: container.clientHeight };
+		if (!rectInView(vp, rect, size)) await flow.setViewport(focusOn(rect, size, vp.zoom, 0.5));
+		// A card scrolled into view mounts a frame or two later.
+		for (let frame = 0; frame < 20; frame++) {
+			const el = container.querySelector<HTMLElement>(`article[data-node-id="${id}"]`);
+			if (el) {
+				el.focus({ preventScroll: true });
+				return;
+			}
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+		}
+	}
+
+	/** Zooms around the focused card's centre, else the canvas centre (the old app's anchor). */
+	function zoomTo(zoom: number) {
+		const vp = flow.getViewport();
+		void flow.setViewport(zoomAt(vp, zoom, zoomAnchor(vp)), { duration: 150 });
+	}
+
+	function zoomAnchor(vp: Viewport) {
+		const internal = store.focusedId ? flow.getInternalNode(store.focusedId) : undefined;
+		if (internal?.measured.width && internal.measured.height) {
+			const { x, y } = internal.internals.positionAbsolute;
+			return { x: (x + internal.measured.width / 2) * vp.zoom + vp.x, y: (y + internal.measured.height / 2) * vp.zoom + vp.y };
+		}
+		return { x: container!.clientWidth / 2, y: container!.clientHeight / 2 };
+	}
+
+	/** The commands a held key may repeat. */
+	const REPEATS: readonly Command['kind'][] = ['focus', 'nudge', 'resize', 'zoomIn', 'zoomOut'];
+
+	/** Every canvas shortcut comes through here (spec §8: one window handler). */
+	function onKey(event: KeyboardEvent) {
+		if (event.defaultPrevented || store.shortcutsOpen) return; // the sheet is modal; its own Esc closes it
+		const el = event.target instanceof HTMLElement ? event.target : null;
+		const typing = !!el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
+		if (store.transcriptOpen && event.key === 'Escape' && !typing) {
+			event.preventDefault();
+			store.transcriptOpen = false;
+			return;
+		}
+		// Inside the linear view the keys scroll it and work its buttons; only Esc (above) belongs to the canvas there.
+		if (el?.closest('.linear')) return;
+		const cardId = el?.matches('article[data-node-id]') ? (el.dataset.nodeId ?? null) : null;
+		const command = resolveShortcut(event, { typing, onCard: cardId !== null });
+		if (!command) return;
+		event.preventDefault();
+		// A held key repeats. A held Delete would walk up the tree (focus moves to the parent after each delete),
+		// so only moves, nudges, resizes and zoom steps act on a repeat.
+		if (event.repeat && !REPEATS.includes(command.kind)) return;
+		run(command, cardId);
+	}
+
+	function run(command: Command, cardId: string | null) {
+		const id = cardId ?? '';
+		switch (command.kind) {
+			case 'focus': {
+				const to = moveFocus(store.graph, cardId ?? store.focusedId ?? store.target, command.move);
+				if (to) store.focusCard(to);
+				return;
+			}
+			case 'bind':
+				return store.bindComposer(id);
+			case 'branch':
+				return store.branchFromCard(id);
+			case 'regenerate':
+				return store.regenerate(id);
+			case 'toggleCollapsed':
+				return store.toggleCollapsed(id);
+			case 'toggleBody':
+				return store.toggleBodyCollapsed(id);
+			case 'resize':
+				return store.resizeBy(id, command.dw, command.dh);
+			case 'nudge':
+				return store.nudge(id, command.dx, command.dy);
+			case 'delete':
+				return store.remove(id);
+			case 'stop':
+				return store.stop(id);
+			case 'undo':
+				return store.undoRemove();
+			case 'zoomIn':
+				return zoomTo(flow.getViewport().zoom * ZOOM_STEP_FACTOR);
+			case 'zoomOut':
+				return zoomTo(flow.getViewport().zoom / ZOOM_STEP_FACTOR);
+			case 'zoom100':
+				return zoomTo(1);
+			case 'fit':
+				void flow.fitView({ duration: 250 });
+				return;
+			case 'tidy':
+				return store.tidy();
+			case 'focusPath':
+				return store.toggleFocusPath();
+			case 'transcript':
+				store.transcriptOpen = !store.transcriptOpen;
+				return;
+			case 'shortcuts':
+				store.shortcutsOpen = true;
+				return;
+		}
+	}
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="flow" bind:this={container}>
 	<SvelteFlow
@@ -144,6 +281,9 @@
 		initialViewport={store.viewport}
 		nodesConnectable={false}
 		elementsSelectable={false}
+		nodesFocusable={false}
+		edgesFocusable={false}
+		disableKeyboardA11y
 		deleteKey={null}
 		zoomOnDoubleClick={false}
 		minZoom={0.25}
@@ -159,7 +299,9 @@
 		}}
 	>
 		<Background variant={BackgroundVariant.Lines} gap={24} patternColor="var(--cy-paper-edge)" bgColor="var(--cy-paper)" />
-		<Controls showLock={false} />
+		<Controls showLock={false}>
+			<ControlButton onclick={() => zoomTo(1)} title={copy('zoom.reset')} aria-label={copy('zoom.reset')}>1:1</ControlButton>
+		</Controls>
 		<MiniMap pannable zoomable bgColor="var(--cy-paper-deep)" />
 	</SvelteFlow>
 	{#if store.graph.nodeIds.length === 0}<EmptyState variant="empty" {onpick} />{/if}
