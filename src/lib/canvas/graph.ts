@@ -19,10 +19,10 @@ import {
  * a root down to a node is exactly what gets sent to the model for that node,
  * which is what `toMessages` produces.
  *
- * Every mutation returns a new graph and leaves the input untouched, so a
- * React `useState` holding one of these behaves correctly without a reducer
- * library. Node objects are shared by reference where they did not change, so
- * a memoised node card only re-renders when its own node did.
+ * Every mutation returns a new graph and leaves the input untouched, so the
+ * store can hold it in `$state.raw` and replace it whole. Node objects are
+ * shared by reference where they did not change, so a card only re-renders
+ * when its own node did.
  */
 
 /** The caps `POST /api/chat` enforces, imported so the canvas checks the same numbers. */
@@ -178,6 +178,130 @@ export function descendantIds(
  */
 export function canBranchFrom(node: ConversationNode): boolean {
   return node.response.trim() !== "";
+}
+
+/** What Continue sends: the model picks up an interrupted reply, in a new card below it (the old app's wording). */
+export const CONTINUE_PROMPT = "Continue from where you left off.";
+
+export type GraphStructure = {
+  /** Parent id → child ids in creation order; roots are listed under `null`. */
+  children: ReadonlyMap<string | null, readonly string[]>;
+  /** Ids under a collapsed node: not drawn. A collapsed node itself is drawn. */
+  hidden: ReadonlySet<string>;
+};
+
+/** Children and the hidden set in one pass, for callers that would otherwise ask per node. */
+export function graphStructure(graph: ConversationGraph): GraphStructure {
+  const children = new Map<string | null, string[]>();
+  for (const id of graph.nodeIds) {
+    const parent = graph.nodesById[id].parentId;
+    const list = children.get(parent);
+    if (list) list.push(id);
+    else children.set(parent, [id]);
+  }
+  const hidden = new Set<string>();
+  const hide = (id: string) => {
+    for (const child of children.get(id) ?? []) {
+      if (hidden.has(child)) continue;
+      hidden.add(child);
+      hide(child);
+    }
+  };
+  for (const id of graph.nodeIds) if (graph.nodesById[id].collapsed) hide(id);
+  return { children, hidden };
+}
+
+export function hiddenIds(graph: ConversationGraph): ReadonlySet<string> {
+  return graphStructure(graph).hidden;
+}
+
+/** The graph without its hidden nodes: what the canvas draws, and what Tidy lays out. */
+export function visibleGraph(graph: ConversationGraph): ConversationGraph {
+  const { hidden } = graphStructure(graph);
+  if (hidden.size === 0) return graph;
+  const nodeIds = graph.nodeIds.filter((id) => !hidden.has(id));
+  const nodesById: Record<string, ConversationNode> = {};
+  for (const id of nodeIds) nodesById[id] = graph.nodesById[id];
+  return { nodesById, nodeIds };
+}
+
+/** Copies positions from a laid-out copy (e.g. `tidyLayout(visibleGraph(g))`) back into the full graph. */
+export function adoptPositions(
+  graph: ConversationGraph,
+  from: ConversationGraph,
+  now?: number,
+): ConversationGraph {
+  let next = graph;
+  for (const id of from.nodeIds) {
+    const current = graph.nodesById[id];
+    const position = from.nodesById[id].position;
+    if (current && (current.position.x !== position.x || current.position.y !== position.y)) {
+      next = placeNode(next, id, position, now);
+    }
+  }
+  return next;
+}
+
+/** Expands every collapsed node from the root down to `nodeId`, inclusive, so a new child of it is drawn. */
+export function expandPath(graph: ConversationGraph, nodeId: string, now?: number): ConversationGraph {
+  let next = graph;
+  for (const node of pathToRoot(graph, nodeId)) {
+    if (node.collapsed) next = setCollapsed(next, node.id, false, now);
+  }
+  return next;
+}
+
+/** Takes a node and its subtree out, and returns what it took (parents first) so Undo can put it back. */
+export function extractBranch(
+  graph: ConversationGraph,
+  nodeId: string,
+): { graph: ConversationGraph; removed: ConversationNode[] } {
+  const removed = descendantIds(graph, nodeId).map((id) => graph.nodesById[id]);
+  return { graph: removeBranch(graph, nodeId), removed };
+}
+
+/** Puts an extracted branch back, every node as it was, in creation order. */
+export function restoreBranch(
+  graph: ConversationGraph,
+  removed: readonly ConversationNode[],
+): ConversationGraph {
+  if (removed.length === 0) return graph;
+  const parentId = removed[0].parentId;
+  if (parentId !== null && !graph.nodesById[parentId]) {
+    throw new Error(`Cannot restore under ${parentId}: it is gone.`);
+  }
+  const nodesById: Record<string, ConversationNode> = { ...graph.nodesById };
+  for (const node of removed) {
+    if (nodesById[node.id]) throw new Error(`Cannot restore ${node.id}: it is already on the canvas.`);
+    nodesById[node.id] = node;
+  }
+  // A stable sort: equal creation times keep their existing order.
+  const nodeIds = [...graph.nodeIds, ...removed.map((n) => n.id)].sort(
+    (a, b) => nodesById[a].createdAt - nodesById[b].createdAt,
+  );
+  return { nodesById, nodeIds };
+}
+
+/**
+ * Retry sends the same prompt again into the same card. Not once the card has
+ * replies: they were answered against the text it has, and retrying clears it.
+ */
+export function canRetry(graph: ConversationGraph, nodeId: string): boolean {
+  const node = graph.nodesById[nodeId];
+  return !!node && node.status === "error" && childIds(graph, nodeId).length === 0;
+}
+
+/** Continue asks for the rest of a stopped reply, in a new card below it. */
+export function canContinue(node: ConversationNode): boolean {
+  return node.status === "interrupted" && canBranchFrom(node);
+}
+
+/** Regenerate asks the same prompt again in a new sibling card. Not while this one is still going. */
+export function canRegenerate(graph: ConversationGraph, nodeId: string): boolean {
+  const node = graph.nodesById[nodeId];
+  if (!node || node.status === "streaming") return false;
+  const parent = node.parentId ? graph.nodesById[node.parentId] : null;
+  return node.parentId === null || (!!parent && canBranchFrom(parent));
 }
 
 export type AddNodeInput = {
