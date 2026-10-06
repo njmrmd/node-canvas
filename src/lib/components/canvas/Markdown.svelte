@@ -1,9 +1,11 @@
 <!-- Renders parsed blocks with text interpolation only: no {@html}, ever. -->
 <script lang="ts">
-	import { parseMarkdown, type Inline } from '$lib/canvas/markdown';
+	import { MarkdownStream, type Inline } from '$lib/canvas/markdown';
 
 	let { text, streaming = false }: { text: string; streaming?: boolean } = $props();
-	const blocks = $derived(parseMarkdown(text));
+	// One parser per card: as the reply grows, only its unfinished tail is parsed again.
+	const stream = new MarkdownStream();
+	const blocks = $derived(stream.update(text));
 	const caretInline = $derived(streaming && blocks.at(-1)?.kind === 'paragraph');
 </script>
 
@@ -14,7 +16,7 @@
 		{#if block.kind === 'paragraph'}
 			<p>{@render inline(block.inline)}{#if caretInline && b === blocks.length - 1}<span class="caret" aria-hidden="true"></span>{/if}</p>
 		{:else if block.kind === 'list' && block.ordered}
-			<ol>{#each block.items as item, i (i)}<li>{@render inline(item)}</li>{/each}</ol>
+			<ol start={block.start}>{#each block.items as item, i (i)}<li>{@render inline(item)}</li>{/each}</ol>
 		{:else if block.kind === 'list'}
 			<ul>{#each block.items as item, i (i)}<li>{@render inline(item)}</li>{/each}</ul>
 		{:else}
@@ -29,6 +31,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
+		overflow-wrap: anywhere;
 	}
 	p,
 	ol,
