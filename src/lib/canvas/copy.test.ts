@@ -134,3 +134,8 @@ test("leaves no unrendered braces once every slot is supplied", () => {
     assert.doesNotMatch(rendered, /[{}]/, `${key} left a brace: ${rendered}`);
   }
 });
+
+test("renders the collapse counts", () => {
+  assert.equal(copy("node.hiddenCount", { n: 3 }), "3 hidden");
+  assert.equal(copy("node.action.expand", { n: 3 }), "Expand (3)");
+});

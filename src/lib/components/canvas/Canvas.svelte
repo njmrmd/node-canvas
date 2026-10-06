@@ -36,15 +36,20 @@
 		void store.layoutVersion;
 		untrack(() => {
 			const graph = store.graph;
+			const { hidden } = store.structure;
 			const prev = new Map(nodes.map((n) => [n.id, n]));
-			nodes = graph.nodeIds.map((id) => {
-				const { position } = graph.nodesById[id];
-				const p = prev.get(id);
-				if (p && p.position.x === position.x && p.position.y === position.y) return p;
-				return p ? { ...p, position } : { id, type: 'card', position, data: {} };
-			});
+			nodes = graph.nodeIds
+				.filter((id) => !hidden.has(id))
+				.map((id) => {
+					const node = graph.nodesById[id];
+					const width = node.size?.width;
+					const height = node.size && !node.bodyCollapsed ? node.size.height : undefined;
+					const p = prev.get(id);
+					if (p && p.position.x === node.position.x && p.position.y === node.position.y && p.width === width && p.height === height) return p;
+					return { ...(p ?? { id, type: 'card', data: {} }), position: node.position, width, height };
+				});
 			edges = graph.nodeIds
-				.filter((id) => graph.nodesById[id].parentId)
+				.filter((id) => !hidden.has(id) && graph.nodesById[id].parentId)
 				.map((id) => ({ id: `e-${id}`, source: graph.nodesById[id].parentId!, target: id }));
 		});
 	});

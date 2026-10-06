@@ -1,12 +1,13 @@
 <script lang="ts">
-	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
+	import { Handle, NodeResizeControl, Position, type NodeProps } from '@xyflow/svelte';
 	import { copy } from '$lib/canvas/copy';
 	import { presentError } from '$lib/canvas/errors';
-	import { canBranchFrom, canContinue, canRegenerate, canRetry, CONTINUE_PROMPT } from '$lib/canvas/graph';
+	import { canBranchFrom, canContinue, canRegenerate, canRetry, CONTINUE_PROMPT, type ConversationNode } from '$lib/canvas/graph';
+	import { NODE_HEIGHT_MAX, NODE_HEIGHT_MIN, NODE_WIDTH_MAX, NODE_WIDTH_MIN } from '$lib/canvas/layout';
 	import { useCanvas } from '$lib/canvas/store.svelte';
 	import Markdown from './Markdown.svelte';
 
-	let { id }: NodeProps = $props();
+	let { id, width, height }: NodeProps = $props();
 	const store = useCanvas();
 	const node = $derived(store.graph.nodesById[id]);
 	const isTarget = $derived(store.target === id);
@@ -29,6 +30,32 @@
 		!!node && (node.status === 'interrupted' || (node.status === 'error' && !retryable)) && canRegenerate(store.graph, id)
 	);
 	const blocked = $derived(store.streamBlockedReason);
+	/** A resized card has a fixed height — except while its body is collapsed, when it is one line. */
+	const sized = $derived(height !== undefined && !node?.bodyCollapsed);
+	const children = $derived(store.childCount(id));
+	const hiddenCount = $derived(node?.collapsed ? store.hiddenBelow(id) : 0);
+	const oneLine = $derived(node?.bodyCollapsed ? summaryLine(node) : '');
+
+	/** The collapsed body's one line: the reply's first line, else the failure, else "Thinking", else the prompt. */
+	function summaryLine(n: ConversationNode): string {
+		const line = firstLine(n.response);
+		if (line) return line;
+		if (n.error) return n.error.message;
+		if (n.status === 'streaming') return copy('node.status.thinking');
+		return n.prompt;
+	}
+
+	/** Scans line by line, so a long reply is not split in full. */
+	function firstLine(text: string): string {
+		for (let start = 0; start < text.length; ) {
+			const end = text.indexOf('\n', start);
+			const line = text.slice(start, end === -1 ? text.length : end).trim();
+			if (line) return line;
+			if (end === -1) break;
+			start = end + 1;
+		}
+		return '';
+	}
 
 	// A streaming body follows its newest line unless the reader scrolled up.
 	let body = $state<HTMLDivElement>();
@@ -43,10 +70,12 @@
 	<article
 		class="card"
 		class:target={isTarget}
+		class:sized
 		data-node-id={id}
 		data-parent-id={node.parentId ?? ''}
 		data-status={node.status}
-		style:width="{store.width}px"
+		style:width="{width ?? store.width}px"
+		style:height={sized ? `${height}px` : undefined}
 	>
 		<Handle type="target" position={Position.Top} isConnectable={false} />
 		<header>
@@ -72,32 +101,53 @@
 			<button
 				class="nodrag icon"
 				type="button"
+				aria-label={copy(node.bodyCollapsed ? 'node.action.expandBody' : 'node.action.collapseBody')}
+				title={copy(node.bodyCollapsed ? 'node.action.expandBody' : 'node.action.collapseBody')}
+				onclick={() => store.toggleBodyCollapsed(id)}><span aria-hidden="true">{node.bodyCollapsed ? '▤' : '—'}</span></button
+			>
+			{#if children > 0}
+				<button
+					class="nodrag icon"
+					type="button"
+					aria-expanded={!node.collapsed}
+					aria-label={node.collapsed ? copy('node.action.expand', { n: hiddenCount }) : copy('node.action.collapse')}
+					title={node.collapsed ? copy('node.action.expand', { n: hiddenCount }) : copy('node.action.collapse')}
+					onclick={() => store.toggleCollapsed(id)}><span aria-hidden="true">{node.collapsed ? '▸' : '▾'}</span></button
+				>
+			{/if}
+			<button
+				class="nodrag icon"
+				type="button"
 				aria-label={copy('node.action.delete')}
 				title={copy('node.action.delete')}
 				onclick={() => store.remove(id)}><span aria-hidden="true">✕</span></button
 			>
 		</header>
-		{#if node.thinking}
-			<details class="thinking nodrag nowheel">
-				<summary>{copy('node.thinking')}</summary>
-				<p>{node.thinking}</p>
-			</details>
-		{/if}
-		<div
-			class="body nowheel"
-			data-testid="card-body"
-			bind:this={body}
-			onscroll={() => {
-				if (body) stick = body.scrollHeight - body.scrollTop - body.clientHeight < 24;
-			}}
-		>
-			{#if node.response}
-				<Markdown text={node.response} streaming={node.status === 'streaming'} />
-			{:else if node.status === 'streaming'}
-				<span class="pending">…</span>
+		{#if node.bodyCollapsed}
+			<p class="oneline" data-testid="card-oneline" title={oneLine}>{oneLine}</p>
+		{:else}
+			{#if node.thinking}
+				<details class="thinking nodrag nowheel">
+					<summary>{copy('node.thinking')}</summary>
+					<p>{node.thinking}</p>
+				</details>
 			{/if}
-			{#if failure}<p class="error" role="status">{failure.message}</p>{/if}
-		</div>
+			<div
+				class="body nowheel"
+				data-testid="card-body"
+				bind:this={body}
+				onscroll={() => {
+					if (body) stick = body.scrollHeight - body.scrollTop - body.clientHeight < 24;
+				}}
+			>
+				{#if node.response}
+					<Markdown text={node.response} streaming={node.status === 'streaming'} />
+				{:else if node.status === 'streaming'}
+					<span class="pending">…</span>
+				{/if}
+				{#if failure}<p class="error" role="status">{failure.message}</p>{/if}
+			</div>
+		{/if}
 		{#if retryable || continuable || regenerable}
 			<footer class="actions">
 				{#if retryable}
@@ -131,18 +181,38 @@
 				{/if}
 			</footer>
 		{/if}
+		{#if node.collapsed && hiddenCount > 0}
+			<button class="nodrag chip" type="button" onclick={() => store.toggleCollapsed(id)}>{copy('node.hiddenCount', { n: hiddenCount })}</button>
+		{/if}
+		{#if !node.bodyCollapsed}
+			<NodeResizeControl
+				minWidth={NODE_WIDTH_MIN}
+				maxWidth={NODE_WIDTH_MAX}
+				minHeight={NODE_HEIGHT_MIN}
+				maxHeight={NODE_HEIGHT_MAX}
+				class="resize"
+				aria-label={copy('node.action.resize')}
+				title={copy('node.action.resize')}
+				onResizeEnd={(_event, params) => store.resized(id, { width: params.width, height: params.height })}
+			/>
+		{/if}
 		<Handle type="source" position={Position.Bottom} isConnectable={false} />
 	</article>
 {/if}
 
 <style>
 	.card {
+		display: flex;
+		flex-direction: column;
 		background: var(--cy-paper-lift);
 		color: var(--cy-ink);
 		border: 1px solid var(--cy-paper-edge);
 		border-radius: var(--radius-md);
 		box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
 		font: var(--text-sm);
+	}
+	.card.sized {
+		overflow: hidden;
 	}
 	.card.target {
 		border-color: var(--cy-gold);
@@ -210,6 +280,19 @@
 		overflow: auto;
 		user-select: text;
 	}
+	.card.sized .body {
+		flex: 1;
+		min-height: 0;
+		max-height: none;
+	}
+	.oneline {
+		margin: 0;
+		padding: var(--space-2) var(--space-3);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--cy-ink-soft);
+	}
 	.error {
 		margin: var(--space-2) 0 0;
 		color: var(--danger);
@@ -218,5 +301,23 @@
 		display: flex;
 		gap: var(--space-2);
 		padding: 0 var(--space-3) var(--space-3);
+	}
+	.chip {
+		align-self: flex-start;
+		margin: 0 var(--space-3) var(--space-3);
+		border-radius: var(--radius-full);
+	}
+	.card :global(.svelte-flow__resize-control.resize) {
+		width: 14px;
+		height: 14px;
+		border: 0;
+		border-radius: 3px;
+		background: var(--cy-gold);
+		opacity: 0;
+		transition: opacity var(--dur-fast) var(--ease-out);
+	}
+	.card:hover :global(.svelte-flow__resize-control.resize),
+	.card:focus-within :global(.svelte-flow__resize-control.resize) {
+		opacity: 1;
 	}
 </style>

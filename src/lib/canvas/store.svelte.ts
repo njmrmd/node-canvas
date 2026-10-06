@@ -1,9 +1,10 @@
-import { getContext, setContext } from 'svelte';
+import { getContext, setContext, untrack } from 'svelte';
 import { ApiCallError, apiFetch, type RateLimitSnapshot } from './api-client';
 import { copy } from './copy';
 import { TIMEOUT_ERROR, toNodeError } from './errors';
 import {
 	addNode,
+	adoptPositions,
 	appendText,
 	appendThinking,
 	canBranchFrom,
@@ -13,22 +14,32 @@ import {
 	checkBranchSize,
 	completeNode,
 	CONTINUE_PROMPT,
+	expandPath,
 	extractBranch,
 	failNode,
+	graphStructure,
 	interruptNode,
 	moveNode,
 	pathToRoot,
+	resizeNode,
 	restoreBranch,
+	setBodyCollapsed,
+	setCollapsed,
 	settleOrphanedStreams,
 	startStreaming,
 	toMessages,
+	visibleGraph,
 	type ConversationGraph,
 	type ConversationNode
 } from './graph';
 import {
 	autoPlaceOnCreate,
 	centeredRootPosition,
+	NODE_HEIGHT_MAX,
+	NODE_HEIGHT_MIN,
 	NODE_WIDTH_DESKTOP,
+	NODE_WIDTH_MAX,
+	NODE_WIDTH_MIN,
 	nodeWidthsFrom,
 	reflowChildrenOnCreate,
 	tidyLayout,
@@ -72,6 +83,11 @@ export class CanvasStore {
 	saveError = $state<string | null>(null);
 	online = $state(true);
 	undo = $state.raw<UndoState | null>(null);
+	/** Children, and the cards a collapse hides — rebuilt only when the structure can have changed. */
+	readonly structure = $derived.by(() => {
+		void this.layoutVersion;
+		return untrack(() => graphStructure(this.graph));
+	});
 
 	readonly width = NODE_WIDTH_DESKTOP;
 	viewport: Viewport;
@@ -183,6 +199,22 @@ export class CanvasStore {
 		return this.streams.position(id);
 	}
 
+	childCount(id: string): number {
+		return this.structure.children.get(id)?.length ?? 0;
+	}
+
+	/** How many cards a collapse on `id` hides: everything below it, not only its direct replies. */
+	hiddenBelow(id: string): number {
+		const { children } = this.structure;
+		const queue = [...(children.get(id) ?? [])];
+		let count = 0;
+		while (queue.length > 0) {
+			count += 1;
+			queue.push(...(children.get(queue.pop()!) ?? []));
+		}
+		return count;
+	}
+
 	branch(id: string): void {
 		this.target = id;
 		this.saver.markView();
@@ -247,7 +279,8 @@ export class CanvasStore {
 
 	/** A new card under `parentId` (a new root when null) asking `prompt`, streamed; the composer moves to it. */
 	private createAndStream(parentId: string | null, prompt: string): string {
-		let graph = this.graph;
+		// A reply to a card inside a collapsed subtree would be born hidden: show the way down first.
+		let graph = parentId ? expandPath(this.graph, parentId) : this.graph;
 		const heights = this.measure();
 		const widths = nodeWidthsFrom(graph, this.width);
 		const position = parentId
@@ -328,8 +361,44 @@ export class CanvasStore {
 		this.commit(moveNode(this.graph, id, position));
 	}
 
+	/** Tidy lays out the cards that are drawn; hidden ones keep their place until their subtree opens. */
 	tidy(): void {
-		this.commit(tidyLayout(this.graph, this.width, this.measure()));
+		const laidOut = tidyLayout(visibleGraph(this.graph), this.width, this.measure(), nodeWidthsFrom(this.graph, this.width));
+		this.commit(adoptPositions(this.graph, laidOut));
+		this.layoutVersion++;
+	}
+
+	/** Hides or shows everything below a card. Showing lays the subtree out under it again. */
+	toggleCollapsed(id: string): void {
+		const node = this.graph.nodesById[id];
+		if (!node || this.childCount(id) === 0) return;
+		let graph = setCollapsed(this.graph, id, !node.collapsed);
+		if (node.collapsed) graph = reflowChildrenOnCreate(graph, id, this.width, this.measure(), nodeWidthsFrom(graph, this.width));
+		this.commit(graph);
+		this.layoutVersion++;
+	}
+
+	/** One line instead of the whole card, or back. */
+	toggleBodyCollapsed(id: string): void {
+		const node = this.graph.nodesById[id];
+		if (!node) return;
+		this.commit(setBodyCollapsed(this.graph, id, !node.bodyCollapsed));
+		this.layoutVersion++; // a resized card's flow node drops, or gets back, its fixed height
+	}
+
+	/** A card's new size (handle or keyboard), clamped to the old app's bounds; its replies re-centre under it. */
+	resized(id: string, size: { width: number; height: number }): void {
+		if (!this.graph.nodesById[id]) return;
+		const clamped = {
+			width: Math.round(Math.min(NODE_WIDTH_MAX, Math.max(NODE_WIDTH_MIN, size.width))),
+			height: Math.round(Math.min(NODE_HEIGHT_MAX, Math.max(NODE_HEIGHT_MIN, size.height)))
+		};
+		let graph = resizeNode(this.graph, id, clamped);
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- a local copy for one layout call, never observed
+		const heights = new Map(this.measure());
+		heights.set(id, clamped.height);
+		graph = reflowChildrenOnCreate(graph, id, this.width, heights, nodeWidthsFrom(graph, this.width));
+		this.commit(graph);
 		this.layoutVersion++;
 	}
 
@@ -364,7 +433,9 @@ export class CanvasStore {
 		this.setUndo(null);
 		const parentId = undo.removed[0]?.parentId ?? null;
 		if (parentId !== null && !this.graph.nodesById[parentId]) return; // its parent is gone since: nothing to hang it on
-		const graph = restoreBranch(this.graph, undo.removed);
+		let graph = restoreBranch(this.graph, undo.removed);
+		// Collapsed since the delete, the parent would hide the branch Undo brings back: open the way to it.
+		if (parentId !== null) graph = expandPath(graph, parentId);
 		this.saver.cancelDeletion(undo.rootId);
 		this.commit(graph); // every restored node is new to the graph, so every one is saved again, parents first
 		if (undo.clearedTarget && this.target === null) {

@@ -140,6 +140,14 @@ const PORT_RULED = {
     "This reply didn't finish. Branch from another card, or start a new conversation.",
   /* Plan 3: the card's delete button (the old app's hard-coded label). */
   "node.action.delete": "Delete",
+  /* Plan 3: card size controls — the old app's hard-coded labels (node-card.tsx at c215512). */
+  "node.action.collapseBody": "Collapse to one line",
+  "node.action.expandBody": "Show full reply",
+  "node.action.collapse": "Collapse",
+  "node.action.expand": "Expand ({n})",
+  "node.action.resize": "Resize card",
+  /* Plan 3: the chip on a collapsed card — the spec asks for a hidden-count chip and gives no wording. */
+  "node.hiddenCount": "{n} hidden",
 } as const;
 
 export const COPY = {
