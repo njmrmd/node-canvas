@@ -277,10 +277,18 @@ export class CanvasStore {
 		this.enqueue(id);
 	}
 
+	/** Opens every collapsed card on the way down to `id`, and lays the opened subtree out under the topmost one — as the chip does. */
+	private openTo(graph: ConversationGraph, id: string): ConversationGraph {
+		const top = pathToRoot(graph, id).find((n) => n.collapsed);
+		if (!top) return graph;
+		const opened = expandPath(graph, id);
+		return reflowChildrenOnCreate(opened, top.id, this.width, this.measure(), nodeWidthsFrom(opened, this.width));
+	}
+
 	/** A new card under `parentId` (a new root when null) asking `prompt`, streamed; the composer moves to it. */
 	private createAndStream(parentId: string | null, prompt: string): string {
 		// A reply to a card inside a collapsed subtree would be born hidden: show the way down first.
-		let graph = parentId ? expandPath(this.graph, parentId) : this.graph;
+		let graph = parentId ? this.openTo(this.graph, parentId) : this.graph;
 		const heights = this.measure();
 		const widths = nodeWidthsFrom(graph, this.width);
 		const position = parentId
@@ -435,7 +443,7 @@ export class CanvasStore {
 		if (parentId !== null && !this.graph.nodesById[parentId]) return; // its parent is gone since: nothing to hang it on
 		let graph = restoreBranch(this.graph, undo.removed);
 		// Collapsed since the delete, the parent would hide the branch Undo brings back: open the way to it.
-		if (parentId !== null) graph = expandPath(graph, parentId);
+		if (parentId !== null) graph = this.openTo(graph, parentId);
 		this.saver.cancelDeletion(undo.rootId);
 		this.commit(graph); // every restored node is new to the graph, so every one is saved again, parents first
 		if (undo.clearedTarget && this.target === null) {

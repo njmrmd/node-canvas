@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { fit, savedNodesText, send, settled } from './helpers';
+import { fit, savedNodesText, send, settled, viewport } from './helpers';
 
 test('dragging the corner resizes a card, and the size survives a reload', async ({ page, signIn }) => {
 	await signIn();
@@ -81,4 +81,37 @@ test('Undo under a parent collapsed since brings the branch back in view', async
 	await fit(page);
 	await expect(page.locator(`article[data-node-id="${first}"]`)).toBeVisible();
 	await expect(page.locator(`article[data-node-id="${second}"]`)).toBeVisible();
+});
+
+test('a click on the resize corner without a drag leaves the card unsized', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const id = await send(page, 'click the corner');
+	await settled(page);
+	const card = page.locator(`article[data-node-id="${id}"]`);
+	await card.hover();
+	const handle = (await card.locator('.svelte-flow__resize-control').boundingBox())!;
+	await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+	await page.mouse.down();
+	await page.mouse.up();
+	await page.waitForTimeout(300);
+	expect(await card.evaluate((el) => el.classList.contains('sized'))).toBe(false); // read once: a retrying check could pass before the click lands
+});
+
+test('sending to a reply hidden since a Tidy lays it out under its parent again, as the chip would', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const parent = await send(page, 'parent card');
+	const reply = await send(page, 'its reply'); // the composer now replies to it
+	await page.locator(`article[data-node-id="${parent}"]`).getByRole('button', { name: 'Collapse', exact: true }).click();
+	await expect(page.locator(`article[data-node-id="${reply}"]`)).toHaveCount(0);
+	await page.getByRole('button', { name: 'Tidy', exact: true }).click(); // moves the parent; the hidden reply keeps its place
+	await expect(page.getByTestId('composer-target')).toHaveAttribute('data-target-id', reply);
+	await send(page, 'a reply to the hidden card');
+	await fit(page);
+	const { zoom } = await viewport(page);
+	const p = (await page.locator(`.svelte-flow__node[data-id="${parent}"]`).boundingBox())!;
+	const r = (await page.locator(`.svelte-flow__node[data-id="${reply}"]`).boundingBox())!;
+	expect(Math.abs(r.x + r.width / 2 - (p.x + p.width / 2)) / zoom).toBeLessThan(40); // centred under it, in flow units
+	expect((r.y - (p.y + p.height)) / zoom).toBeGreaterThan(0); // and below it
 });

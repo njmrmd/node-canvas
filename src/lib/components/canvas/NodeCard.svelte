@@ -35,6 +35,8 @@
 	const children = $derived(store.childCount(id));
 	const hiddenCount = $derived(node?.collapsed ? store.hiddenBelow(id) : 0);
 	const oneLine = $derived(node?.bodyCollapsed ? summaryLine(node) : '');
+	/** The size a resize began at: a click on the corner without a drag must not pin the card's size. */
+	let resizeFrom: { width: number; height: number } | null = null;
 
 	/** The collapsed body's one line: the reply's first line, else the failure, else "Thinking", else the prompt. */
 	function summaryLine(n: ConversationNode): string {
@@ -193,7 +195,13 @@
 				class="resize"
 				aria-label={copy('node.action.resize')}
 				title={copy('node.action.resize')}
-				onResizeEnd={(_event, params) => store.resized(id, { width: params.width, height: params.height })}
+				onResizeStart={(_event, params) => (resizeFrom = { width: params.width, height: params.height })}
+				onResizeEnd={(_event, params) => {
+					const from = resizeFrom;
+					resizeFrom = null;
+					if (from && Math.round(from.width) === Math.round(params.width) && Math.round(from.height) === Math.round(params.height)) return;
+					store.resized(id, { width: params.width, height: params.height });
+				}}
 			/>
 		{/if}
 		<Handle type="source" position={Position.Bottom} isConnectable={false} />
