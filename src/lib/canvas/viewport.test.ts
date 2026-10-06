@@ -3,10 +3,11 @@ import { describe, it } from 'node:test';
 import { focusOn, rectInView, ZOOM_MAX, ZOOM_MIN, zoomAt } from './viewport';
 
 describe('zoomAt', () => {
-	it('keeps the canvas point under the anchor where it was', () => {
-		const vp = { x: 100, y: 50, zoom: 1 };
+	it('zooms to the given level, keeping the canvas point under the anchor where it was', () => {
+		const vp = { x: 100, y: 50, zoom: 0.5 };
 		const anchor = { x: 300, y: 250 };
-		const next = zoomAt(vp, 2, anchor);
+		const next = zoomAt(vp, 1, anchor);
+		assert.equal(next.zoom, 1);
 		assert.equal((anchor.x - next.x) / next.zoom, (anchor.x - vp.x) / vp.zoom);
 		assert.equal((anchor.y - next.y) / next.zoom, (anchor.y - vp.y) / vp.zoom);
 	});
@@ -25,5 +26,7 @@ describe('rectInView and focusOn', () => {
 		const vp = focusOn(rect, size, 0.5, 0.5);
 		assert.equal(vp.zoom, 0.5);
 		assert.equal(rectInView(vp, rect, size), true);
+		const high = focusOn(rect, size, 0.5, 0.25);
+		assert.equal(high.y + (rect.y + rect.height / 2) * 0.5, size.height * 0.25, 'the centre sits at yFraction of the height');
 	});
 });

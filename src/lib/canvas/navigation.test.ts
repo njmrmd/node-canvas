@@ -55,4 +55,10 @@ describe('moveFocus', () => {
 		assert.equal(moveFocus(tree(), null, 'child'), 'r');
 		assert.equal(moveFocus(createGraph(), null, 'first'), null);
 	});
+
+	it('End skips hidden cards, and a collapsed card counts as a leaf', () => {
+		// t is the newest card of all but sits under the collapsed s, so the newest drawn leaf is s itself.
+		const g = setCollapsed(answered(tree(), 't', 's'), 's', true);
+		assert.equal(moveFocus(g, 'r', 'last'), 's');
+	});
 });

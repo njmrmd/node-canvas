@@ -86,7 +86,7 @@ export type ConversationNode = {
 
 export type ConversationGraph = {
   nodesById: Readonly<Record<string, ConversationNode>>;
-  /** Insertion order. Roots and children alike; the canvas derives its own. */
+  /** Creation order (an Undo puts a branch back by `createdAt`); parents always before their children. */
   nodeIds: readonly string[];
 };
 
@@ -256,6 +256,7 @@ export function extractBranch(
   graph: ConversationGraph,
   nodeId: string,
 ): { graph: ConversationGraph; removed: ConversationNode[] } {
+  requireNode(graph, nodeId);
   const removed = descendantIds(graph, nodeId).map((id) => graph.nodesById[id]);
   return { graph: removeBranch(graph, nodeId), removed };
 }
@@ -275,7 +276,8 @@ export function restoreBranch(
     if (nodesById[node.id]) throw new Error(`Cannot restore ${node.id}: it is already on the canvas.`);
     nodesById[node.id] = node;
   }
-  // A stable sort: equal creation times keep their existing order.
+  // Sorted by creation time. On a tie a remaining node stays before a restored one, and restored
+  // nodes keep their parents-first order, so a parent always precedes its children.
   const nodeIds = [...graph.nodeIds, ...removed.map((n) => n.id)].sort(
     (a, b) => nodesById[a].createdAt - nodesById[b].createdAt,
   );

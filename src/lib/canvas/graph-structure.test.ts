@@ -70,6 +70,15 @@ describe('graph structure', () => {
 		const g = expandPath(setCollapsed(setCollapsed(tree(), 'r', true), 'a', true), 'b');
 		assert.equal(g.nodesById.r.collapsed, false);
 		assert.equal(g.nodesById.a.collapsed, false);
+		assert.equal(expandPath(setCollapsed(tree(), 'a', true), 'a').nodesById.a.collapsed, false, 'the node itself too');
+	});
+
+	it('returns the very same graph, and the same node objects, where nothing changed', () => {
+		const g = tree();
+		assert.equal(visibleGraph(g), g, 'nothing hidden: the same graph');
+		assert.equal(adoptPositions(g, g), g, 'nothing moved: the same graph');
+		const moved = adoptPositions(g, placeNode(g, 'c', { x: 5, y: 5 }));
+		for (const id of ['r', 'a', 'b', 's']) assert.equal(moved.nodesById[id], g.nodesById[id], id);
 	});
 });
 
@@ -88,6 +97,18 @@ describe('extract and restore a branch', () => {
 		const { graph, removed } = extractBranch(tree(), 'a');
 		assert.throws(() => restoreBranch(extractBranch(graph, 'r').graph, removed), /gone/);
 		assert.throws(() => restoreBranch(tree(), removed), /already/);
+		assert.throws(() => extractBranch(tree(), 'nope'), /nope/);
+	});
+
+	it('restores a branch whose creation times tie, parents still before their children', () => {
+		let g = createGraph();
+		for (const [id, parentId] of [['r', null], ['a', 'r'], ['b', 'a'], ['c', 'r']] as const) {
+			const added = addNode(g, { id, prompt: id, parentId, position: { x: 0, y: 0 }, now: 5 });
+			g = completeNode(appendText(startStreaming(added.graph, id, 5), id, id, 5), id, null, 5);
+		}
+		const { graph, removed } = extractBranch(g, 'a');
+		const at = (id: string) => restoreBranch(graph, removed).nodeIds.indexOf(id);
+		assert.ok(at('r') < at('a') && at('a') < at('b'), 'r before a before b');
 	});
 });
 
@@ -118,5 +139,7 @@ describe('retry, continue and regenerate', () => {
 		assert.equal(canRegenerate(g, 'b'), true);
 		assert.equal(canRegenerate(startStreaming(g, 'b'), 'b'), false);
 		assert.equal(canRegenerate(g, 'missing'), false);
+		assert.equal(canRegenerate(g, 'r'), true, 'a root can be regenerated');
+		assert.equal(canRegenerate(startStreaming(g, 'a'), 'b'), false, 'not while its parent has no answer');
 	});
 });
