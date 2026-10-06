@@ -347,7 +347,9 @@ export class Saver {
 		// Sort by depth
 		body.upserts.sort((a, b) => this.deps.depthOf(a.id) - this.deps.depthOf(b.id) || a.createdAt - b.createdAt);
 
-		// The same rule on the way out: a view naming a node this request leaves out would store no target.
+		// The same rule on the way out. A target this request leaves out may not be on the server yet,
+		// and a view naming it would store no target; the saver cannot tell, so the view waits for the
+		// next regular flush (if the tab is closing, a moment of pan and zoom is lost instead).
 		const target = body.view?.targetNodeId;
 		if (body.view && target && candidates.has(target) && !included.has(target)) delete body.view;
 		if (body.upserts.length === 0 && !body.view) return;

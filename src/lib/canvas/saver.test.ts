@@ -563,6 +563,7 @@ describe('Saver', () => {
 		h.saver.markView();
 		await h.saver.flush();
 		assert.equal(h.sent.some((s) => s.body.view), false, 'a view naming an unsaved node would store no target');
+		assert.ok(h.sent.some((s) => s.body.upserts.some((n) => n.id === `n${MAX_BATCH_NODES}`)), 'the batch the view rode with still went');
 		h.allow('n0');
 		await h.saver.flush();
 		await h.saver.flush();
@@ -596,5 +597,38 @@ describe('Saver', () => {
 		await h.saver.flush({ keepalive: true });
 		await h.saver.flush({ keepalive: true });
 		assert.equal(h.sent.filter((s) => s.keepalive).length, 2);
+	});
+
+	it('a flush the network halts sends no delete either, and keeps it pending', async () => {
+		const h = harness({ a: node('a') });
+		h.saver.markNode('a');
+		h.saver.markDeleted('gone');
+		h.fail({ code: 'network' });
+		await h.saver.flush();
+		assert.deepEqual(h.removals, []);
+		assert.equal(h.saver.pending, 2);
+	});
+
+	it('the unload save keeps the view when its target is in the request, or already saved', async () => {
+		const h = harness({ t: node('t'), u: node('u') });
+		h.setTarget('t');
+		h.saver.markNode('t');
+		h.saver.markView();
+		await h.saver.flush({ keepalive: true });
+		assert.ok(h.sent.some((s) => s.keepalive && s.body.view?.targetNodeId === 't'), 'the target rides in the same request');
+		await h.saver.flush(); // t and the view are saved
+		h.saver.markNode('u');
+		h.saver.markView();
+		await h.saver.flush({ keepalive: true });
+		assert.equal(h.sent.filter((s) => s.keepalive).at(-1)?.body.view?.targetNodeId, 't', 'the server has the target already');
+	});
+
+	it('a later unload save sends again after the first one failed', async () => {
+		const h = harness({ a: node('a') });
+		h.saver.markNode('a');
+		h.fail({ code: 'network' });
+		await h.saver.flush({ keepalive: true });
+		await h.saver.flush({ keepalive: true });
+		assert.equal(h.sent.filter((s) => s.keepalive).length, 1, 'the second one went');
 	});
 });
