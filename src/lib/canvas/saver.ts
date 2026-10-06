@@ -166,7 +166,7 @@ export class Saver {
 			let failed = false; // something the server refused or could not take: the banner goes up
 			let halted = false; // the server, or the network, cannot take anything right now
 			while (queue.length > 0) {
-				const body = queue.shift()!;
+				let body = queue.shift()!;
 				if (singles.has(body) && sentSingles >= MAX_SINGLES_PER_FLUSH) {
 					this.requeue([body]);
 					unsaved.add(body.upserts[0].id);
@@ -174,10 +174,13 @@ export class Saver {
 					continue;
 				}
 				// The view names its target; sent before that node is saved, the server would store none.
+				// It waits for the next flush — on its own, or by leaving the batch it rode with.
 				const target = body.view?.targetNodeId;
-				if (body.upserts.length === 0 && target && unsaved.has(target)) {
-					this.requeue([body]);
-					continue;
+				if (body.view && target && unsaved.has(target)) {
+					this.viewDirty = true;
+					this.inFlightView = false;
+					if (body.upserts.length === 0) continue;
+					body = { upserts: body.upserts };
 				}
 				if (singles.has(body)) {
 					sentSingles += 1;
@@ -344,6 +347,9 @@ export class Saver {
 		// Sort by depth
 		body.upserts.sort((a, b) => this.deps.depthOf(a.id) - this.deps.depthOf(b.id) || a.createdAt - b.createdAt);
 
+		// The same rule on the way out: a view naming a node this request leaves out would store no target.
+		const target = body.view?.targetNodeId;
+		if (body.view && target && candidates.has(target) && !included.has(target)) delete body.view;
 		if (body.upserts.length === 0 && !body.view) return;
 		await this.deps.put(body, true);
 	}

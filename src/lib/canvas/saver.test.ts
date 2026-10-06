@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { NodeWire, ViewWire } from './node-wire';
-import { MAX_BATCH_BYTES, MAX_SINGLES_PER_FLUSH, Saver, type SaveBody, type SaverDeps } from './saver';
+import { MAX_BATCH_BYTES, MAX_BATCH_NODES, MAX_SINGLES_PER_FLUSH, Saver, type SaveBody, type SaverDeps } from './saver';
 
 function node(id: string, extra: Partial<NodeWire> = {}): NodeWire {
 	return {
@@ -22,6 +22,7 @@ function harness(nodes: Record<string, NodeWire>, depth: Record<string, number> 
 	let view: ViewWire = { viewport: { x: 0, y: 0, zoom: 1 }, targetNodeId: null };
 	const removals: { id: string; keepalive: boolean }[] = [];
 	let removeFails: unknown = null;
+	const events: string[] = [];
 	const deps: SaverDeps = {
 		getNode: (id) => nodes[id] ?? null,
 		depthOf: (id) => depth[id] ?? 0,
@@ -34,6 +35,7 @@ function harness(nodes: Record<string, NodeWire>, depth: Record<string, number> 
 			}
 			if (body.upserts.some((n) => refused.has(n.id))) throw { code: 'invalid_request' };
 			sent.push({ body, keepalive });
+			events.push(...body.upserts.map((n) => `put:${n.id}`));
 			return { rejected: [] };
 		},
 		remove: async (id, keepalive) => {
@@ -43,6 +45,7 @@ function harness(nodes: Record<string, NodeWire>, depth: Record<string, number> 
 				throw e;
 			}
 			removals.push({ id, keepalive });
+			events.push(`del:${id}`);
 		},
 		isOnline: () => online,
 		onError: (m) => errors.push(m),
@@ -65,6 +68,7 @@ function harness(nodes: Record<string, NodeWire>, depth: Record<string, number> 
 		allow: (id: string) => refused.delete(id),
 		setOnline: (v: boolean) => (online = v),
 		removals,
+		events,
 		failRemove: (e: unknown) => (removeFails = e),
 		setTarget: (id: string | null) => (view = { ...view, targetNodeId: id })
 	};
@@ -446,6 +450,7 @@ describe('Saver', () => {
 		await h.saver.flush();
 		assert.deepEqual(h.sent.map((s) => s.body.upserts.map((n) => n.id)), [['keep']]);
 		assert.deepEqual(h.removals, [{ id: 'gone', keepalive: false }]);
+		assert.deepEqual(h.events, ['put:keep', 'del:gone'], 'the delete goes after the saves');
 		assert.equal(h.saver.pending, 0);
 	});
 
@@ -546,5 +551,50 @@ describe('Saver', () => {
 		h.allow('t');
 		await h.saver.flush();
 		assert.ok(h.sent.some((s) => s.body.view?.targetNodeId === 't'));
+	});
+
+	it('holds the view back while its target is unsaved, even when the view rides with a batch', async () => {
+		const nodes: Record<string, NodeWire> = {};
+		for (let i = 0; i <= MAX_BATCH_NODES; i++) nodes[`n${i}`] = node(`n${i}`, { createdAt: i });
+		const h = harness(nodes);
+		h.refuse('n0');
+		for (const id of Object.keys(nodes)) h.saver.markNode(id);
+		h.setTarget('n0');
+		h.saver.markView();
+		await h.saver.flush();
+		assert.equal(h.sent.some((s) => s.body.view), false, 'a view naming an unsaved node would store no target');
+		h.allow('n0');
+		await h.saver.flush();
+		await h.saver.flush();
+		assert.ok(h.sent.some((s) => s.body.view?.targetNodeId === 'n0'), 'the view arrives once its target is saved');
+	});
+
+	it('the unload save leaves the view out while its target is not in it', async () => {
+		const h = harness({ t: node('t') });
+		h.refuse('t');
+		h.saver.markNode('t');
+		h.setTarget('t');
+		h.saver.markView();
+		await h.saver.flush(); // t is refused and becomes a suspect; the view is held
+		await h.saver.flush({ keepalive: true });
+		assert.equal(h.sent.some((s) => s.keepalive && s.body.view), false);
+	});
+
+	it('a flush the server halts sends no delete, and keeps it pending', async () => {
+		const h = harness({ a: node('a') });
+		h.saver.markNode('a');
+		h.saver.markDeleted('gone');
+		h.fail({ code: 'internal_error' });
+		await h.saver.flush();
+		assert.deepEqual(h.removals, []);
+		assert.equal(h.saver.pending, 2);
+	});
+
+	it('a later unload save sends again once the first has finished', async () => {
+		const h = harness({ a: node('a') });
+		h.saver.markNode('a');
+		await h.saver.flush({ keepalive: true });
+		await h.saver.flush({ keepalive: true });
+		assert.equal(h.sent.filter((s) => s.keepalive).length, 2);
 	});
 });
