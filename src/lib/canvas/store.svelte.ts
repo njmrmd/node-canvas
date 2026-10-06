@@ -66,6 +66,8 @@ export type UndoState = {
 	removed: ConversationNode[];
 	/** The composer target the delete cleared, or null when the target was not in the branch. */
 	clearedTarget: string | null;
+	/** The delete moved keyboard focus off the branch, so Undo gives it back to the restored card. */
+	refocus: boolean;
 };
 
 /** A remembered on/off choice. Private mode or blocked storage just means it is not remembered. */
@@ -276,9 +278,17 @@ export class CanvasStore {
 		writeFlag('nc:focusPath', this.focusPath);
 	}
 
-	/** Moves keyboard focus to a card; the canvas shows it and focuses it. Auto-follow stops: the reader is elsewhere. */
+	/**
+	 * Moves keyboard focus to a card; the canvas shows it and focuses it. Auto-follow stops: the reader is elsewhere.
+	 * A card a collapse hides is not drawn, so focus goes to the collapsed card whose chip stands for it.
+	 */
 	focusCard(id: string): void {
-		this.focusedId = id;
+		const { hidden } = this.structure;
+		let at: string | null = id;
+		// Bounded, so a corrupted, cyclic graph cannot hang the walk.
+		for (let steps = 0; at !== null && hidden.has(at) && steps < this.graph.nodeIds.length; steps++) at = this.graph.nodesById[at]?.parentId ?? null;
+		if (at === null || hidden.has(at) || !this.graph.nodesById[at]) return;
+		this.focusedId = at;
 		this.following = null;
 		this.focusRequest++;
 	}
@@ -541,7 +551,8 @@ export class CanvasStore {
 			this.saver.markView();
 		}
 		if (this.following && gone.has(this.following)) this.following = null;
-		if (this.focusedId && gone.has(this.focusedId)) {
+		const refocus = this.focusedId !== null && gone.has(this.focusedId);
+		if (refocus) {
 			const parentId = removed[0].parentId;
 			if (parentId) this.focusCard(parentId);
 			else this.focusedId = null;
@@ -550,7 +561,8 @@ export class CanvasStore {
 		this.setUndo({
 			rootId: id,
 			removed: removed.map((n) => (n.status === 'streaming' ? { ...n, status: 'interrupted' as const } : n)),
-			clearedTarget
+			clearedTarget,
+			refocus
 		});
 		this.layoutVersion++;
 	}
@@ -572,6 +584,8 @@ export class CanvasStore {
 			this.saver.markView();
 		}
 		this.layoutVersion++;
+		// After the bump, so the structure focusCard reads already has the restored cards.
+		if (undo.refocus) this.focusCard(undo.rootId);
 	}
 
 	private setUndo(undo: UndoState | null): void {

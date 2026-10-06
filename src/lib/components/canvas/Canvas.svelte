@@ -158,7 +158,8 @@
 
 	async function reveal(id: string) {
 		const node = store.graph.nodesById[id];
-		if (!node || !container) return;
+		// A hidden card is never drawn; focusCard sends focus to the collapsed card that hides it instead.
+		if (!node || !container || store.structure.hidden.has(id)) return;
 		const internal = flow.getInternalNode(id);
 		const rect = {
 			x: node.position.x,
@@ -168,15 +169,19 @@
 		};
 		const vp = flow.getViewport();
 		const size = { width: container.clientWidth, height: container.clientHeight };
-		if (!rectInView(vp, rect, size)) await flow.setViewport(focusOn(rect, size, vp.zoom, 0.5));
-		// A card scrolled into view mounts a frame or two later.
+		if (!rectInView(vp, rect, size)) {
+			await flow.setViewport(focusOn(rect, size, vp.zoom, 0.5));
+			if (store.focusedId !== id) return; // a later move or click took over
+		}
+		// A card scrolled into view mounts a frame or two later: focus it once it is there, until the focus holds.
 		for (let frame = 0; frame < 20; frame++) {
 			const el = container.querySelector<HTMLElement>(`article[data-node-id="${id}"]`);
 			if (el) {
 				el.focus({ preventScroll: true });
-				return;
+				if (document.activeElement === el) return;
 			}
 			await new Promise((resolve) => requestAnimationFrame(resolve));
+			if (store.focusedId !== id) return;
 		}
 	}
 
@@ -187,12 +192,49 @@
 	}
 
 	function zoomAnchor(vp: Viewport) {
+		const width = container!.clientWidth;
+		const height = container!.clientHeight;
 		const internal = store.focusedId ? flow.getInternalNode(store.focusedId) : undefined;
 		if (internal?.measured.width && internal.measured.height) {
 			const { x, y } = internal.internals.positionAbsolute;
-			return { x: (x + internal.measured.width / 2) * vp.zoom + vp.x, y: (y + internal.measured.height / 2) * vp.zoom + vp.y };
+			const anchor = { x: (x + internal.measured.width / 2) * vp.zoom + vp.x, y: (y + internal.measured.height / 2) * vp.zoom + vp.y };
+			// Only a centre the person can see anchors the zoom: a card panned out of view would shove the view away.
+			if (anchor.x >= 0 && anchor.x <= width && anchor.y >= 0 && anchor.y <= height) return anchor;
 		}
-		return { x: container!.clientWidth / 2, y: container!.clientHeight / 2 };
+		return { x: width / 2, y: height / 2 };
+	}
+
+	/** How far inside the view's edges a nudged or resized card is kept. */
+	const KEEP_MARGIN = 24;
+
+	/**
+	 * After a nudge or a keyboard resize, pans just enough to keep the card KEEP_MARGIN px inside the view. A card
+	 * pushed out would unmount and drop focus, and the next Alt+← would reach the browser (Back on Windows and Linux).
+	 * A card bigger than the view keeps its left and top edges in.
+	 *
+	 * It reads the store's position and size, which already hold the move, and pans at once: several presses can land
+	 * in one frame, and a card left out of view until the next frame is unmounted by then, taking focus with it.
+	 */
+	function keepInView(id: string) {
+		const node = store.graph.nodesById[id];
+		const measured = flow.getInternalNode(id)?.measured;
+		if (!node || !container) return;
+		const width = node.size?.width ?? measured?.width;
+		const height = (node.size && !node.bodyCollapsed ? node.size.height : undefined) ?? measured?.height;
+		if (!width || !height) return;
+		const vp = flow.getViewport();
+		const left = node.position.x * vp.zoom + vp.x;
+		const top = node.position.y * vp.zoom + vp.y;
+		const dx = shiftInto(left, left + width * vp.zoom, container.clientWidth);
+		const dy = shiftInto(top, top + height * vp.zoom, container.clientHeight);
+		if (dx !== 0 || dy !== 0) void flow.setViewport({ ...vp, x: vp.x + dx, y: vp.y + dy });
+	}
+
+	/** The pan that brings the span [start, end] inside [KEEP_MARGIN, size − KEEP_MARGIN]; if it cannot fit, its start wins. */
+	function shiftInto(start: number, end: number, size: number): number {
+		if (start < KEEP_MARGIN) return KEEP_MARGIN - start;
+		if (end > size - KEEP_MARGIN) return Math.max(size - KEEP_MARGIN - end, KEEP_MARGIN - start);
+		return 0;
 	}
 
 	/** The commands a held key may repeat. */
@@ -239,9 +281,11 @@
 			case 'toggleBody':
 				return store.toggleBodyCollapsed(id);
 			case 'resize':
-				return store.resizeBy(id, command.dw, command.dh);
+				store.resizeBy(id, command.dw, command.dh);
+				return keepInView(id);
 			case 'nudge':
-				return store.nudge(id, command.dx, command.dy);
+				store.nudge(id, command.dx, command.dy);
+				return keepInView(id);
 			case 'delete':
 				return store.remove(id);
 			case 'stop':
@@ -284,7 +328,7 @@
 		nodesFocusable={false}
 		edgesFocusable={false}
 		disableKeyboardA11y
-		deleteKey={null}
+		deleteKey={[]}
 		zoomOnDoubleClick={false}
 		minZoom={0.25}
 		maxZoom={2}
@@ -300,7 +344,7 @@
 	>
 		<Background variant={BackgroundVariant.Lines} gap={24} patternColor="var(--cy-paper-edge)" bgColor="var(--cy-paper)" />
 		<Controls showLock={false}>
-			<ControlButton onclick={() => zoomTo(1)} title={copy('zoom.reset')} aria-label={copy('zoom.reset')}>1:1</ControlButton>
+			<ControlButton onclick={() => zoomTo(1)} title={copy('zoom.reset')} aria-label={copy('zoom.reset')}>100%</ControlButton>
 		</Controls>
 		<MiniMap pannable zoomable bgColor="var(--cy-paper-deep)" />
 	</SvelteFlow>

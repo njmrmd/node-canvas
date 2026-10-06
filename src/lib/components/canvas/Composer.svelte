@@ -50,7 +50,8 @@
 			onkeydown={(e) => {
 				if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
 					e.preventDefault();
-					submit();
+					// A held Enter repeats; after Enter on a card the repeats land here, and must not send the draft.
+					if (!e.repeat) submit();
 				} else if (e.key === 'Escape') {
 					// Back to the card the composer replies to, so the keyboard carries on from there.
 					e.preventDefault();

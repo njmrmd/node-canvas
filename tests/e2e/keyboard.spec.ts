@@ -85,7 +85,7 @@ test('Alt+arrows nudge the focused card and Cmd/Ctrl+Alt+arrows resize it', asyn
 	await expect.poll(() => savedNodesText(page)).toContain('"manual"');
 });
 
-test('Delete removes the focused card and Cmd/Ctrl+Z brings it back', async ({ page, signIn }) => {
+test('Delete removes the focused card and Cmd/Ctrl+Z brings it back, focused', async ({ page, signIn }) => {
 	await signIn();
 	await page.goto('/canvas');
 	const keep = await send(page, 'keep me');
@@ -97,6 +97,7 @@ test('Delete removes the focused card and Cmd/Ctrl+Z brings it back', async ({ p
 	await expect.poll(() => focused(page)).toBe(keep); // focus moves to the parent
 	await page.keyboard.press('ControlOrMeta+z');
 	await expect(card(page, drop)).toBeVisible();
+	await expect.poll(() => focused(page)).toBe(drop); // and comes back with the card
 });
 
 test('B, R, C and M act on the focused card', async ({ page, signIn }) => {
@@ -205,13 +206,11 @@ test('holding Delete deletes one card, not each parent in turn', async ({ page, 
 	const child = await send(page, 'hold child');
 	await page.getByLabel('Message').press('Escape');
 	await expect.poll(() => focused(page)).toBe(child);
-	await page.keyboard.press('Delete');
+	await page.keyboard.down('Delete');
 	await expect(card(page, child)).toHaveCount(0);
 	await expect.poll(() => focused(page)).toBe(parent);
-	// What the OS sends while the key stays down: the same keydown again, marked as a repeat.
-	await page.evaluate(() =>
-		document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', repeat: true, bubbles: true, cancelable: true }))
-	);
+	await page.keyboard.down('Delete'); // what the OS sends while the key stays down: the same keydown again, marked as a repeat
+	await page.keyboard.up('Delete');
 	await page.waitForTimeout(300); // a repeat that deleted would have removed the parent by now
 	await expect(card(page, parent)).toHaveCount(1);
 });
@@ -227,6 +226,109 @@ test('keys pressed in the linear view stay in it', async ({ page, signIn }) => {
 	await page.keyboard.press('End');
 	await page.keyboard.press('ArrowUp');
 	await expect(panel).toBeFocused();
+	await page.keyboard.press('Tab'); // to the panel's own button
+	const copyAll = panel.getByRole('button', { name: 'Copy all' });
+	await expect(copyAll).toBeFocused();
+	const focusPath = page.getByRole('button', { name: 'Focus path' });
+	const pressed = (await focusPath.getAttribute('aria-pressed'))!;
+	await page.keyboard.press('End');
+	await page.keyboard.press('f');
+	await expect(copyAll).toBeFocused();
+	await expect(focusPath).toHaveAttribute('aria-pressed', pressed);
 	await page.keyboard.press('Escape');
 	await expect(panel).toHaveCount(0);
+});
+
+test('Esc in the composer, with its target hidden, focuses the collapsed card that hides it', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const parent = await send(page, 'hide my reply');
+	const child = await send(page, 'the hidden reply');
+	await settled(page);
+	await page.getByLabel('Message').press('Escape');
+	await expect.poll(() => focused(page)).toBe(child);
+	await page.keyboard.press('ArrowUp');
+	await expect.poll(() => focused(page)).toBe(parent);
+	await page.keyboard.press('c');
+	await expect(card(page, child)).toHaveCount(0);
+	await expect(page.getByTestId('composer-target')).toHaveAttribute('data-target-id', child);
+	await page.getByLabel('Message').click();
+	const before = await viewport(page);
+	await page.getByLabel('Message').press('Escape');
+	await expect.poll(() => focused(page)).toBe(parent);
+	expect(await viewport(page)).toEqual(before);
+});
+
+test('zoom anchors on the focused card while it is on screen, and on the canvas centre once it is not', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const id = await send(page, 'anchor the zoom');
+	await settled(page);
+	await page.getByLabel('Message').press('Escape');
+	await expect.poll(() => focused(page)).toBe(id);
+	const centre = async () => {
+		const b = (await card(page, id).boundingBox())!;
+		return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+	};
+	const before = await centre();
+	await page.keyboard.press('+');
+	await expect.poll(async () => (await viewport(page)).zoom).toBe(1.2);
+	await settled(page);
+	const after = await centre();
+	expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(2);
+	expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(2);
+	for (let i = 0; i < 2; i++) {
+		const p = await emptyCanvasPoint(page);
+		await page.mouse.move(p.x, p.y);
+		await page.mouse.down();
+		await page.mouse.move(p.x + 600, p.y + 500, { steps: 10 });
+		await page.mouse.up();
+	}
+	await expect(cards(page)).toHaveCount(0); // still the focused card, but out of view
+	const area = (await page.locator('.flow').boundingBox())!;
+	const mid = { x: area.width / 2, y: area.height / 2 };
+	const from = await viewport(page);
+	await page.keyboard.press('+');
+	await expect.poll(async () => (await viewport(page)).zoom).toBe(1.44);
+	await settled(page);
+	const to = await viewport(page);
+	// The canvas point that was under the container's centre is still there.
+	const x = (mid.x - from.x) / from.zoom;
+	const y = (mid.y - from.y) / from.zoom;
+	expect(Math.abs(x * to.zoom + to.x - mid.x)).toBeLessThanOrEqual(2);
+	expect(Math.abs(y * to.zoom + to.y - mid.y)).toBeLessThanOrEqual(2);
+});
+
+test('held Alt+arrows keep the card on screen and focused', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const id = await send(page, 'push me to the edge');
+	await settled(page);
+	await page.getByLabel('Message').press('Escape');
+	await expect.poll(() => focused(page)).toBe(id);
+	for (let i = 0; i < 15; i++) await page.keyboard.press('Shift+Alt+ArrowLeft');
+	await settled(page);
+	await expect.poll(() => focused(page)).toBe(id);
+	const box = (await card(page, id).boundingBox())!;
+	const area = (await page.locator('.flow').boundingBox())!;
+	expect(box.x).toBeGreaterThanOrEqual(area.x);
+	expect(box.y).toBeGreaterThanOrEqual(area.y);
+	expect(box.x + box.width).toBeLessThanOrEqual(area.x + area.width);
+	expect(box.y + box.height).toBeLessThanOrEqual(area.y + area.height);
+});
+
+test('a held Enter on a card binds the composer and sends nothing', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const id = await send(page, 'hold Enter on me');
+	const field = page.getByLabel('Message');
+	await field.fill('a draft I am still writing');
+	await field.press('Escape');
+	await expect.poll(() => focused(page)).toBe(id);
+	await page.keyboard.down('Enter');
+	await expect(field).toBeFocused();
+	await page.keyboard.down('Enter'); // the OS's auto-repeat, which now lands in the composer
+	await page.keyboard.up('Enter');
+	await expect(field).toHaveValue('a draft I am still writing');
+	await expect(cards(page)).toHaveCount(1);
 });

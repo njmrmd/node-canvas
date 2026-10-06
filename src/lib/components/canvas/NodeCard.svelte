@@ -80,6 +80,7 @@
 		data-status={node.status}
 		tabindex={store.rovingId === id ? 0 : -1}
 		aria-current={isTarget ? 'true' : undefined}
+		aria-labelledby="prompt-{id}"
 		onfocusin={() => store.noteFocus(id)}
 		style:width="{width ?? store.width}px"
 		style:height={sized ? `${height}px` : undefined}
@@ -87,9 +88,9 @@
 		<Handle type="target" position={Position.Top} isConnectable={false} />
 		<header>
 			{#if node.prompt === CONTINUE_PROMPT}
-				<h3 class="prompt continued">{copy('node.continuedFrom')}</h3>
+				<h3 class="prompt continued" id="prompt-{id}">{copy('node.continuedFrom')}</h3>
 			{:else}
-				<h3 class="prompt" title={node.prompt}>{node.prompt}</h3>
+				<h3 class="prompt" id="prompt-{id}" title={node.prompt}>{node.prompt}</h3>
 			{/if}
 			{#if status}<span class="status">{status}</span>{/if}
 			{#if node.status === 'streaming'}
