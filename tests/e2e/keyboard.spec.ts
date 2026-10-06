@@ -153,7 +153,9 @@ test('zoom keys, and the 100% button', async ({ page, signIn }) => {
 	await expect.poll(async () => (await viewport(page)).zoom).toBe(1);
 	await page.keyboard.press('-');
 	await expect.poll(async () => (await viewport(page)).zoom).toBeCloseTo(0.833, 2);
-	await page.getByRole('button', { name: 'Zoom to 100%' }).click();
+	const reset = page.getByRole('button', { name: 'Zoom to 100%' });
+	expect(await reset.evaluate((b) => b.scrollWidth <= b.clientWidth), 'the 100% label fits its button').toBe(true);
+	await reset.click();
 	await expect.poll(async () => (await viewport(page)).zoom).toBe(1);
 	await page.keyboard.press('0'); // fit: one card fits at the maximum zoom
 	await expect.poll(async () => (await viewport(page)).zoom).not.toBe(1);
@@ -331,4 +333,47 @@ test('a held Enter on a card binds the composer and sends nothing', async ({ pag
 	await page.keyboard.up('Enter');
 	await expect(field).toHaveValue('a draft I am still writing');
 	await expect(cards(page)).toHaveCount(1);
+});
+
+test('keyboard-resizing a card taller than the view keeps its moving edge in view', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const id = await send(page, 'grow me past the view');
+	await settled(page);
+	await page.getByLabel('Message').press('Escape');
+	await expect.poll(() => focused(page)).toBe(id);
+	const area = (await page.locator('.flow').boundingBox())!;
+	const box = async () => (await card(page, id).boundingBox())!;
+	for (let i = 0; i < 30; i++) await page.keyboard.press('Shift+ControlOrMeta+Alt+ArrowDown'); // up to the 900 px clamp
+	await settled(page);
+	expect((await box()).height).toBeGreaterThan(area.height);
+	for (const key of ['ControlOrMeta+Alt+ArrowDown', 'ControlOrMeta+Alt+ArrowUp']) {
+		const before = await viewport(page);
+		await page.keyboard.press(key);
+		await settled(page);
+		const b = await box();
+		expect(b.y + b.height, `${key}: the bottom edge is in view`).toBeLessThanOrEqual(area.y + area.height);
+		expect(b.y, `${key}: the view did not jump to the card's top`).toBeLessThan(area.y);
+		expect((await viewport(page)).y, `${key}: the view did not move`).toBe(before.y);
+	}
+});
+
+test('nudges keep the card clear of the open linear view', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const id = await send(page, 'stay beside the panel');
+	await settled(page);
+	await page.getByLabel('Message').blur();
+	await page.keyboard.press('t');
+	const panel = page.getByRole('region', { name: 'Linear view' });
+	await expect(panel).toBeVisible();
+	await page.getByLabel('Message').click();
+	await page.getByLabel('Message').press('Escape'); // back to the card; the panel stays open
+	await expect.poll(() => focused(page)).toBe(id);
+	for (let i = 0; i < 20; i++) await page.keyboard.press('Shift+Alt+ArrowRight');
+	await settled(page);
+	await expect.poll(() => focused(page)).toBe(id);
+	const b = (await card(page, id).boundingBox())!;
+	const p = (await panel.boundingBox())!;
+	expect(b.x + b.width).toBeLessThanOrEqual(p.x);
 });

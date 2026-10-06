@@ -192,8 +192,7 @@
 	}
 
 	function zoomAnchor(vp: Viewport) {
-		const width = container!.clientWidth;
-		const height = container!.clientHeight;
+		const { width, height } = visibleSize();
 		const internal = store.focusedId ? flow.getInternalNode(store.focusedId) : undefined;
 		if (internal?.measured.width && internal.measured.height) {
 			const { x, y } = internal.internals.positionAbsolute;
@@ -204,18 +203,23 @@
 		return { x: width / 2, y: height / 2 };
 	}
 
-	/** How far inside the view's edges a nudged or resized card is kept. */
+	/** The part of the canvas a person can see: while the linear view is open, it covers the canvas's right-hand side. */
+	function visibleSize() {
+		const panel = store.transcriptOpen ? document.querySelector<HTMLElement>('.linear') : null;
+		return { width: Math.max(0, container!.clientWidth - (panel?.getBoundingClientRect().width ?? 0)), height: container!.clientHeight };
+	}
+
+	/** How far inside the view's edges a moved card is kept, and how much of a card always stays in view. */
 	const KEEP_MARGIN = 24;
 
 	/**
-	 * After a nudge or a keyboard resize, pans just enough to keep the card KEEP_MARGIN px inside the view. A card
-	 * pushed out would unmount and drop focus, and the next Alt+← would reach the browser (Back on Windows and Linux).
-	 * A card bigger than the view keeps its left and top edges in.
+	 * After a nudge or a keyboard resize, pans just enough to keep the card in view (see `panAlong`). A card pushed out
+	 * would unmount and drop focus, and the next Alt+← would reach the browser (Back on Windows and Linux).
 	 *
 	 * It reads the store's position and size, which already hold the move, and pans at once: several presses can land
 	 * in one frame, and a card left out of view until the next frame is unmounted by then, taking focus with it.
 	 */
-	function keepInView(id: string) {
+	function keepInView(id: string, move: { dx: number; dy: number; resize: boolean }) {
 		const node = store.graph.nodesById[id];
 		const measured = flow.getInternalNode(id)?.measured;
 		if (!node || !container) return;
@@ -223,18 +227,29 @@
 		const height = (node.size && !node.bodyCollapsed ? node.size.height : undefined) ?? measured?.height;
 		if (!width || !height) return;
 		const vp = flow.getViewport();
+		const view = visibleSize();
 		const left = node.position.x * vp.zoom + vp.x;
 		const top = node.position.y * vp.zoom + vp.y;
-		const dx = shiftInto(left, left + width * vp.zoom, container.clientWidth);
-		const dy = shiftInto(top, top + height * vp.zoom, container.clientHeight);
+		const dx = panAlong(left, left + width * vp.zoom, view.width, move.dx, move.resize);
+		const dy = panAlong(top, top + height * vp.zoom, view.height, move.dy, move.resize);
 		if (dx !== 0 || dy !== 0) void flow.setViewport({ ...vp, x: vp.x + dx, y: vp.y + dy });
 	}
 
-	/** The pan that brings the span [start, end] inside [KEEP_MARGIN, size − KEEP_MARGIN]; if it cannot fit, its start wins. */
-	function shiftInto(start: number, end: number, size: number): number {
-		if (start < KEEP_MARGIN) return KEEP_MARGIN - start;
-		if (end > size - KEEP_MARGIN) return Math.max(size - KEEP_MARGIN - end, KEEP_MARGIN - start);
-		return 0;
+	/**
+	 * The pan along one axis, for a card spanning [start, end] of a view `size` px long that a command moved `delta`
+	 * along this axis. A keyboard resize moves the card's right or bottom edge; a nudge moves it all, led by the edge
+	 * it moves towards.
+	 * - Along the move, a card that fits stays KEEP_MARGIN px inside the view; one that does not keeps the edge the
+	 *   command moves inside, so a person reading the bottom of a tall card is not sent to its top.
+	 * - Across the move, the view pans only when less than KEEP_MARGIN px of the card would still show.
+	 */
+	function panAlong(start: number, end: number, size: number, delta: number, resize: boolean): number {
+		const low = KEEP_MARGIN;
+		const high = size - KEEP_MARGIN;
+		if (delta === 0) return end < low ? low - end : start > high ? high - start : 0;
+		if (end - start <= high - low) return start < low ? low - start : end > high ? high - end : 0;
+		const edge = resize || delta > 0 ? end : start;
+		return edge < low ? low - edge : edge > high ? high - edge : 0;
 	}
 
 	/** The commands a held key may repeat. */
@@ -282,10 +297,10 @@
 				return store.toggleBodyCollapsed(id);
 			case 'resize':
 				store.resizeBy(id, command.dw, command.dh);
-				return keepInView(id);
+				return keepInView(id, { dx: command.dw, dy: command.dh, resize: true });
 			case 'nudge':
 				store.nudge(id, command.dx, command.dy);
-				return keepInView(id);
+				return keepInView(id, { dx: command.dx, dy: command.dy, resize: false });
 			case 'delete':
 				return store.remove(id);
 			case 'stop':
@@ -344,7 +359,7 @@
 	>
 		<Background variant={BackgroundVariant.Lines} gap={24} patternColor="var(--cy-paper-edge)" bgColor="var(--cy-paper)" />
 		<Controls showLock={false}>
-			<ControlButton onclick={() => zoomTo(1)} title={copy('zoom.reset')} aria-label={copy('zoom.reset')}>100%</ControlButton>
+			<ControlButton class="zoom-reset" onclick={() => zoomTo(1)} title={copy('zoom.reset')} aria-label={copy('zoom.reset')}>100%</ControlButton>
 		</Controls>
 		<MiniMap pannable zoomable bgColor="var(--cy-paper-deep)" />
 	</SvelteFlow>
@@ -367,5 +382,16 @@
 	.flow :global(.svelte-flow__edge.on-path .svelte-flow__edge-path) {
 		stroke: var(--cy-gold);
 		stroke-width: 2;
+	}
+	/* Svelte Flow's control buttons are fixed 26 px squares. The 100% control shows a word, so it is as wide as its
+	   label, and the other buttons stretch to the same width to keep the column even. */
+	.flow :global(.svelte-flow__controls-button) {
+		width: auto;
+		min-width: 26px;
+	}
+	.flow :global(.svelte-flow__controls-button.zoom-reset) {
+		padding: 0 var(--space-1);
+		font: var(--text-2xs);
+		white-space: nowrap;
 	}
 </style>
