@@ -153,6 +153,8 @@ const PORT_RULED = {
   "linearview.copied": "Copied",
   "linearview.empty":
     "Nothing here yet. Send a message, or branch from a card, and its conversation shows here as text.",
+  /* Plan 3: Copy all's failure (a refused clipboard) — the old app had no failure state. */
+  "linearview.copyFailed": "Couldn't copy",
 } as const;
 
 export const COPY = {

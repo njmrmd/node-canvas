@@ -9,7 +9,7 @@
 	const store = useCanvas();
 	const path = $derived(store.target && store.graph.nodesById[store.target] ? pathToRoot(store.graph, store.target) : []);
 	let panel = $state<HTMLElement>();
-	let copied = $state(false);
+	let copied = $state<'copied' | 'failed' | null>(null);
 	let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
 	onMount(() => {
@@ -23,10 +23,15 @@
 	});
 
 	async function copyAll() {
-		await navigator.clipboard.writeText(transcriptText(path));
-		copied = true;
+		try {
+			await navigator.clipboard.writeText(transcriptText(path));
+			copied = 'copied';
+		} catch {
+			// A refused or missing clipboard (a denied permission, an insecure origin): say so, and log nothing.
+			copied = 'failed';
+		}
 		clearTimeout(copiedTimer);
-		copiedTimer = setTimeout(() => (copied = false), 2000);
+		copiedTimer = setTimeout(() => (copied = null), 2000);
 	}
 </script>
 
@@ -34,9 +39,10 @@
 	<header>
 		<h2 id="linear-title">{copy('linearview.heading')}</h2>
 		<button type="button" disabled={path.length === 0} onclick={copyAll}
-			>{copied ? copy('linearview.copied') : copy('linearview.copyAll')}</button
+			>{copied === 'copied' ? copy('linearview.copied') : copied === 'failed' ? copy('linearview.copyFailed') : copy('linearview.copyAll')}</button
 		>
 		<button type="button" class="close" aria-label={copy('linearview.close')} onclick={() => (store.transcriptOpen = false)}>×</button>
+		<span class="sr-only" role="status">{copied === 'copied' ? copy('linearview.copied') : copied === 'failed' ? copy('linearview.copyFailed') : ''}</span>
 	</header>
 	{#if path.length === 0}
 		<p class="empty">{copy('linearview.empty')}</p>

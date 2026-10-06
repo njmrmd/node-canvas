@@ -16,4 +16,9 @@ describe('transcriptText', () => {
 	it('is empty for an empty path', () => {
 		assert.equal(transcriptText([]), '');
 	});
+
+	it('never includes thinking', () => {
+		const node = { prompt: 'q', response: 'a', thinking: 'secret reasoning' };
+		assert.equal(transcriptText([node]).includes('secret'), false);
+	});
 });

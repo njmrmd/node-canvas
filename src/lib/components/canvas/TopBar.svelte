@@ -66,6 +66,10 @@
 	button {
 		cursor: pointer;
 	}
+	button[aria-pressed='true'] {
+		border-color: var(--cy-gold);
+		color: var(--cy-gold);
+	}
 	.chip {
 		font: var(--text-xs);
 		color: var(--cy-ink-soft);

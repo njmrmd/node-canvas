@@ -6,6 +6,8 @@ test('cards off the path to the composer target are dimmed, and the toggle turns
 	await page.goto('/canvas');
 	const a = await send(page, 'first root');
 	const b = await send(page, 'its reply');
+	await expect(page.locator('.svelte-flow__edge.on-path')).toHaveCount(1);
+	await expect(page.locator('.svelte-flow__edge.on-path .svelte-flow__edge-path')).toHaveCSS('stroke-width', '2px');
 	await page.getByRole('button', { name: 'New conversation' }).click();
 	const c = await send(page, 'second root');
 	const card = (id: string) => page.locator(`article[data-node-id="${id}"]`);
@@ -40,6 +42,22 @@ test('the linear view shows the path to the target and copies it', async ({ page
 	expect(text).toMatch(/^You: question one\n\nAssistant: Echo: question one\.[\s\S]*\n\n---\n\nYou: question two\n\nAssistant: Echo: question two\./);
 	await panel.getByRole('button', { name: 'Close linear view' }).click();
 	await expect(panel).toHaveCount(0);
+});
+
+test('Copy all says so when the clipboard refuses', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	await send(page, 'copy refused');
+	await page.evaluate(() => {
+		Object.defineProperty(navigator, 'clipboard', {
+			value: { writeText: () => Promise.reject(new DOMException('denied', 'NotAllowedError')) },
+			configurable: true
+		});
+	});
+	await page.getByRole('button', { name: 'Linear view' }).click();
+	const panel = page.getByRole('region', { name: 'Linear view' });
+	await panel.getByRole('button', { name: 'Copy all' }).click();
+	await expect(panel.getByRole('button', { name: "Couldn't copy" })).toBeVisible();
 });
 
 test('the shortcuts sheet lists all 21 shortcuts', async ({ page, signIn }) => {

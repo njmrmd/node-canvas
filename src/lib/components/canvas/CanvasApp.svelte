@@ -43,18 +43,27 @@
 		<Banner tone="warning">{copy('limit.banner', { total: store.rateLimit.limit, time: formatDuration(store.rateLimit.resetSeconds) })}</Banner>
 	{/if}
 	{#if store.saveError}<Banner tone="danger">{store.saveError}</Banner>{/if}
-	<Canvas onpick={(prompt) => composer?.draft(prompt)} />
+	<div class="stage">
+		<Canvas onpick={(prompt) => composer?.draft(prompt)} />
+		{#if store.transcriptOpen}<LinearView />{/if}
+	</div>
 	<Composer bind:this={composer} />
-	{#if store.transcriptOpen}<LinearView />{/if}
 	{#if store.shortcutsOpen}<ShortcutsSheet />{/if}
 </div>
 
 <style>
 	.app {
-		position: relative;
 		display: flex;
 		flex-direction: column;
 		height: 100vh;
 		background: var(--cy-paper);
+	}
+	/* The canvas and the linear view share this box, so the panel never covers the top bar or the composer. */
+	.stage {
+		position: relative;
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
 	}
 </style>

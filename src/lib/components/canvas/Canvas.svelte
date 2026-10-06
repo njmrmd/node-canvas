@@ -172,9 +172,11 @@
 		flex: 1;
 		min-height: 0;
 	}
+	.flow :global(.svelte-flow__edge) {
+		transition: opacity var(--dur-base) var(--ease-out);
+	}
 	.flow :global(.svelte-flow__edge.off-path) {
 		opacity: 0.35;
-		transition: opacity var(--dur-base) var(--ease-out);
 	}
 	.flow :global(.svelte-flow__edge.on-path .svelte-flow__edge-path) {
 		stroke: var(--cy-gold);
