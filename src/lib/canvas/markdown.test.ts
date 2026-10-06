@@ -49,6 +49,27 @@ describe('parseMarkdown', () => {
 	it('returns nothing for empty text', () => {
 		assert.deepEqual(parseMarkdown(''), []);
 	});
+
+	it('parses CRLF lists and never hangs on a line no item pattern accepts', () => {
+		assert.deepEqual(parseMarkdown('- a\r\n- b'), [
+			{ kind: 'list', ordered: false, items: [[{ kind: 'text', text: 'a' }], [{ kind: 'text', text: 'b' }]] }
+		]);
+		assert.deepEqual(parseMarkdown('1. a\r\n2. b'), [
+			{ kind: 'list', ordered: true, items: [[{ kind: 'text', text: 'a' }], [{ kind: 'text', text: 'b' }]] }
+		]);
+		assert.deepEqual(parseMarkdown('-a b\n- c').map((b) => b.kind), ['paragraph', 'list']);
+	});
+
+	it('keeps numbering after a wrapped item line', () => {
+		const blocks = parseMarkdown('1. First item that is long\n   and wraps here\n2. Second item\n3. Third');
+		assert.deepEqual(blocks.map((b) => b.kind), ['list', 'paragraph', 'list']);
+		assert.deepEqual(blocks[2], {
+			kind: 'list',
+			ordered: true,
+			start: 2,
+			items: [[{ kind: 'text', text: 'Second item' }], [{ kind: 'text', text: 'Third' }]]
+		});
+	});
 });
 
 describe('lists', () => {
@@ -94,7 +115,8 @@ describe('MarkdownStream', () => {
 		'Text ``` mid-line on purpose\n\n```\nopen fence that never closes\n\nstill inside',
 		'Para one\nwrapped line.\n\n\n\nAfter several blank lines.\n\n**bold across\n\nblank** stays text.',
 		'a\n \nb\n\t\nc\n\n```\nx\n \ny\n```\n\t\nz',
-		'Before.\r\n\r\n```js\r\nconst x = 1;\r\n\r\nconst y = 2;\r\n```\r\n\r\nAfter the fence.\r\n\r\nMore.'
+		'Before.\r\n\r\n```js\r\nconst x = 1;\r\n\r\nconst y = 2;\r\n```\r\n\r\nAfter the fence.\r\n\r\nMore.',
+		'Intro\r\n\r\n- a\r\n- b\r\n\r\n1. x\r\n2. y\r\nwrapped 1945. line'
 	];
 	for (const [n, sample] of samples.entries()) {
 		it(`matches a full parse at every step, whatever the chunk size (sample ${n + 1})`, () => {
@@ -122,14 +144,16 @@ describe('MarkdownStream', () => {
 		assert.deepEqual(stream.update(text2), parseMarkdown(text2));
 	});
 
-	it('re-parses only the unfinished tail as a long reply streams in', () => {
-		const reply = Array.from({ length: 2000 }, (_, i) => `Paragraph ${i} with a few words in it.`).join('\n\n');
-		const stream = new MarkdownStream();
-		let most = 0;
-		for (let end = 16; end < reply.length; end += 16) {
-			stream.update(reply.slice(0, end));
-			most = Math.max(most, stream.parsedChars);
-		}
-		assert.ok(most < 200, `largest single parse was ${most} characters`);
-	});
+	for (const [name, separator] of [['LF', '\n\n'], ['CRLF', '\r\n\r\n']]) {
+		it(`re-parses only the unfinished tail as a long reply streams in (${name})`, () => {
+			const reply = Array.from({ length: 2000 }, (_, i) => `Paragraph ${i} with a few words in it.`).join(separator);
+			const stream = new MarkdownStream();
+			let most = 0;
+			for (let end = 16; end < reply.length; end += 16) {
+				stream.update(reply.slice(0, end));
+				most = Math.max(most, stream.parsedChars);
+			}
+			assert.ok(most < 200, `largest single parse was ${most} characters`);
+		});
+	}
 });

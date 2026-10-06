@@ -14,6 +14,8 @@ export type Block =
 const FENCE = /```[^\n]*\n([\s\S]*?)```/g;
 const ORDERED_ITEM = /^\s*(\d+)\.\s+(.*)$/;
 const ANY_ITEM = /^\s*(?:[-*]|\d+\.)\s+(.*)$/;
+/** A line that may interrupt a paragraph to start a list: a bullet, or an ordered item numbered 1 (CommonMark). */
+const INTERRUPTS = /^\s*(?:[-*]|1\.)\s/;
 const INLINE = /(\*\*[^*]+\*\*|`[^`]+`)/g;
 const BLANK = /\n\s*\n/g;
 
@@ -30,36 +32,31 @@ export function parseInline(text: string): Inline[] {
 
 /**
  * One blank-line-separated chunk of prose: runs of item lines become a list (any marker, at any
- * indent — nested items are flattened), and the lines between them become paragraphs.
- * Only the first line of a chunk can start a list with any number. Inside a paragraph,
- * only bullets (-/*) or ordered items numbered exactly 1 can continue it (CommonMark).
+ * indent — nested items are flattened), and the lines between them become paragraphs. A list may
+ * start with any number at the top of a chunk or after an earlier list in it; inside a paragraph
+ * only a bullet or an item numbered 1 interrupts it (CommonMark), so a hard-wrapped line that
+ * happens to begin "1945. " stays in its paragraph.
  */
 function parseProse(chunk: string): Block[] {
 	const lines = chunk.split('\n').filter((line) => line.trim() !== '');
 	const blocks: Block[] = [];
+	let listSeen = false;
+	// Both branches decide through ANY_ITEM, so the list loop always consumes the line that started
+	// it and the paragraph loop always consumes its first line: every pass advances `i`.
+	const startsList = (line: string, anyNumber: boolean) =>
+		ANY_ITEM.test(line) && (anyNumber || INTERRUPTS.test(line));
 	let i = 0;
 	while (i < lines.length) {
-		const atStart = blocks.length === 0; // First block of this chunk
-		const isBullet = /^\s*[-*]\s/.test(lines[i]);
-		const isOrderedOne = /^\s*1\.\s/.test(lines[i]);
-		const isAnyItem = ANY_ITEM.test(lines[i]);
-		// At start of chunk, any item starts a list; inside paragraph, only bullets or ordered 1
-		const startsItem = atStart ? isAnyItem : (isBullet || isOrderedOne);
-
-		if (startsItem) {
+		if (startsList(lines[i], blocks.length === 0 || listSeen)) {
 			const first = lines[i].match(ORDERED_ITEM);
 			const items: Inline[][] = [];
 			while (i < lines.length && ANY_ITEM.test(lines[i])) items.push(parseInline(lines[i++].match(ANY_ITEM)![1]));
 			const start = first ? Number(first[1]) : 1;
 			blocks.push(first && start !== 1 ? { kind: 'list', ordered: true, start, items } : { kind: 'list', ordered: !!first, items });
+			listSeen = true;
 		} else {
-			const paragraph: string[] = [];
-			while (i < lines.length) {
-				const isBullet = /^\s*[-*]\s/.test(lines[i]);
-				const isOrderedOne = /^\s*1\.\s/.test(lines[i]);
-				if (isBullet || isOrderedOne) break;
-				paragraph.push(lines[i++]);
-			}
+			const paragraph = [lines[i++]];
+			while (i < lines.length && !startsList(lines[i], listSeen)) paragraph.push(lines[i++]);
 			blocks.push({ kind: 'paragraph', inline: parseInline(paragraph.join(' ')) });
 		}
 	}
@@ -67,6 +64,9 @@ function parseProse(chunk: string): Block[] {
 }
 
 export function parseMarkdown(text: string): Block[] {
+	// CRLF replies parse like LF ones. A \r\n pair never straddles a MarkdownStream cut (the
+	// character before a cut is \n), so normalising each slice equals normalising the whole.
+	const source = text.replace(/\r\n/g, '\n');
 	const blocks: Block[] = [];
 	const pushProse = (segment: string) => {
 		for (const chunk of segment.split(/\n\s*\n/)) blocks.push(...parseProse(chunk));
@@ -74,12 +74,12 @@ export function parseMarkdown(text: string): Block[] {
 	let cursor = 0;
 	FENCE.lastIndex = 0;
 	let match: RegExpExecArray | null;
-	while ((match = FENCE.exec(text)) !== null) {
-		pushProse(text.slice(cursor, match.index));
+	while ((match = FENCE.exec(source)) !== null) {
+		pushProse(source.slice(cursor, match.index));
 		blocks.push({ kind: 'code', text: match[1].replace(/\n$/, '') });
 		cursor = FENCE.lastIndex;
 	}
-	pushProse(text.slice(cursor));
+	pushProse(source.slice(cursor));
 	return blocks;
 }
 
