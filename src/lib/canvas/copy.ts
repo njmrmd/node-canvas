@@ -1,22 +1,19 @@
 /**
  * Every user-facing string on the canvas, in one table.
  *
- * Spec §9 exists "so nobody invents them at build time", and a table only
- * achieves that if reaching for it is easier than typing a literal. So the
- * strings are `as const`, the keys are a closed union, and `copy()` refuses at
- * compile time to render a template whose placeholders you have not supplied —
- * `copy("limit.chip")` does not type-check, and neither does passing `{used}`
- * without `{total}`.
+ * Reaching for a key is easier than typing a literal, so the keys are a closed union and `copy()` refuses at
+ * compile time to render a template whose placeholders you have not supplied — `copy("limit.chip")` does not
+ * type-check, and neither does passing `{used}` without `{total}`.
  *
- * This is transcription, not authorship. Every string below appears verbatim in
- * the spec; where the spec needs a string it does not have, the gap is recorded
- * at the bottom of this file rather than filled in here. Copy is the Design
- * Engineer's, and a plausible-sounding invention is harder to find later than a
- * missing one.
+ * Where the strings come from, by group:
+ * - `SPEC_9`: the old app's copy table (§9 of its design document), carried over with the port. Plan 4's
+ *   copy pass changed a few; each change carries a "Plan 4" comment.
+ * - `SPEC_ELSEWHERE`: strings that document quoted outside its table.
+ * - `REVIEW_APPROVED`: strings approved in the old app's design review.
+ * - `PORT_RULED`: strings this port added, each with the plan that added it.
  *
- * Tone rule, from §9, repeated because it is the thing most likely to erode:
- * state what happened and what to do next. No exclamation marks, no apologies,
- * no "Oops". Never blame the user for an error the system caused.
+ * Tone rule: state what happened and what to do next. No exclamation marks, no apologies, no "Oops". Never
+ * blame the person for an error the system caused. `copy.test.ts` enforces the first two.
  */
 
 /**
@@ -32,9 +29,7 @@ const SPEC_9 = {
   "composer.placeholder": "Ask anything…",
   "composer.placeholder.reply": "Reply to this node…",
   "composer.target": "Replying to · {label}",
-  "coach.branch": "Branch from here to try a different direction.",
   "node.status.thinking": "Thinking",
-  "node.status.thinkingLong": "Still working…",
   "node.status.queued": "Queued · {n} ahead",
   "node.status.stopped": "Stopped",
   "node.action.continue": "Continue",
@@ -54,8 +49,9 @@ const SPEC_9 = {
   "provider.sub":
     "Bring your own API key. It's encrypted and only used for your requests.",
   "provider.cta": "Connect model access",
+  /* Plan 4: sending is blocked while offline, so "new messages will fail" was wrong. */
   "offline.banner":
-    "You're offline. Your canvas is here, but new messages will fail.",
+    "You're offline. Your canvas is still here, and you can send again once you're back online.",
   "save.failed.banner":
     "Some changes aren't saved yet. They keep retrying while this tab stays open.",
   "composer.newConversation": "New conversation",
@@ -81,11 +77,6 @@ const SPEC_ELSEWHERE = {
   "node.error.context_too_long":
     "This branch is too long for the model's context window.",
   "node.error.unknown": "Something went wrong on our side.",
-
-  /* §4.6 — the actions that sit under those lines. */
-  "node.action.remove": "Remove",
-  "node.action.openSettings": "Open settings",
-  "node.action.branchFromEarlier": "Branch from an earlier node",
 
   /* §3 — chosen so that branching is immediately worth doing. */
   "starter.1": "Name this product three different ways",
@@ -134,10 +125,10 @@ const PORT_RULED = {
   /* The draft is over `MAX_MESSAGE_CHARS`; nothing is sent, the draft stays. */
   "composer.tooLong":
     "This message is too long to send. Shorten it to under 100,000 characters.",
-  /* The target failed, was stopped, or finished without any reply text: it will
-   * not get any, so `branch.disabled` would promise something that cannot happen. */
+  /* Plan 4: true of a reply that failed, stopped before any text, or finished empty — none will get text, so
+   * branch.disabled would promise something that cannot happen. */
   "branch.failed":
-    "This reply didn't finish. Branch from another card, or start a new conversation.",
+    "This reply has no text to build on. Branch from another card, or start a new conversation.",
   /* Plan 3: the card's delete button (the old app's hard-coded label). */
   "node.action.delete": "Delete",
   /* Plan 3: card size controls — the old app's hard-coded labels (node-card.tsx at c215512). */
@@ -161,6 +152,13 @@ const PORT_RULED = {
    * "Your canvas is saved and waiting there", because the notice also shows to people with no canvas. */
   "desktop.title": "node-canvas is built for desktop",
   "desktop.body": "Open it in a browser window at least 900 pixels wide.",
+  /* Plan 4: the failure lines spec §4.6 never covered, and the one action each failure offers. */
+  "node.error.noKey": "No model key is connected. Connect one on the key page.",
+  "node.error.signedOut": "You've been signed out. Sign in again to keep going.",
+  "node.error.unsupportedModel":
+    "This model isn't available any more. Choose another in the top bar, then send again.",
+  "node.action.openKeys": "Open the key page",
+  "node.action.signIn": "Sign in",
 } as const;
 
 export const COPY = {
@@ -228,24 +226,9 @@ export function copy<K extends CopyKey>(
 }
 
 /**
- * What §9 does not cover yet.
- *
- * Recorded rather than invented. Each of these is a string the build will need
- * and the spec does not state, so it is a question for the Design Engineer, not
- * a blank to fill in. Listed here because a comment in the file that needs them
- * is where someone will actually look.
- *
- * - **Top bar controls (§6 `<TopBar>`):** the theme toggle and the account
- *   menu are still unnamed. `Tidy` and the focus-path toggle (`focuspath.toggle`)
- *   are resolved, per the TES-46 review.
- * - **Screen-reader strings (§7.3):** the announcement templates are given as
- *   examples in prose — *"Node 4, branch 2 of 3, assistant reply complete, 1
- *   branch below."* — rather than as keyed templates with placeholders. They
- *   need to be the latter before they can be built.
- * - **`<NodeCard>` (§6):** the "Show more" affordance on clamped user text.
- * - **§4.1 renders no `empty.sub`.** The string is in §9 and the empty-state
- *   layout does not place it. One of the two is wrong.
- * - **§4.7's banner and §9's `limit.banner` differ.** §4.7 shows "Resets at
- *   00:00 UTC — in 4h 12m", §9 has "Resets in {time}". §9 is treated as
- *   canonical here, since it is the section that claims to be the inventory.
+ * Known gaps, kept here because this is where someone adding a string will look:
+ * - There are no screen-reader announcements for card moves. Cards are named by their prompt
+ *   (`aria-labelledby`), and their statuses are visible text.
+ * - The old design had the limit banner say "Resets at 00:00 UTC — in 4h 12m". This app's window is the one
+ *   the server enforces, so the banner says "Resets in {time}" and counts down while it shows.
  */

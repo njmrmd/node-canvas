@@ -6,7 +6,7 @@ test('offline shows the banner and blocks sending; online clears it', async ({ p
 	// The canvas hydrates after `load`; going offline first would fail its lazy-loaded chunks.
 	await expect(page.getByLabel('Message')).toBeVisible();
 	await context.setOffline(true);
-	await expect(page.getByText("You're offline. Your canvas is here, but new messages will fail.")).toBeVisible();
+	await expect(page.getByText("You're offline. Your canvas is still here, and you can send again once you're back online.")).toBeVisible();
 	await page.getByLabel('Message').fill('hello');
 	await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
 	await expect(page.locator('.composer .note')).toHaveText('Offline');

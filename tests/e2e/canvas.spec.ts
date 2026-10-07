@@ -157,12 +157,12 @@ test('a reply that did not finish says so in the composer instead of waiting for
 	await expect(page.locator(`article[data-node-id="${refused}"]`)).toHaveAttribute('data-status', 'error');
 	await expect(page.locator(`article[data-node-id="${refused}"] button[aria-label="Branch"]`)).toHaveAttribute(
 		'title',
-		"This reply didn't finish. Branch from another card, or start a new conversation."
+		"This reply has no text to build on. Branch from another card, or start a new conversation."
 	);
 	await expect(page.getByTestId('composer-target')).toHaveAttribute('data-target-id', refused);
 	await expect(page.getByLabel('Message')).toHaveAttribute(
 		'placeholder',
-		"This reply didn't finish. Branch from another card, or start a new conversation."
+		"This reply has no text to build on. Branch from another card, or start a new conversation."
 	);
 	await page.getByLabel('Message').fill('follow up');
 	await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
@@ -177,10 +177,10 @@ test('a reply that finished empty says so in the composer instead of waiting for
 	await expect(page.locator(`article[data-node-id="${id}"]`)).toHaveAttribute('data-status', 'complete');
 	await expect(page.getByLabel('Message')).toHaveAttribute(
 		'placeholder',
-		"This reply didn't finish. Branch from another card, or start a new conversation."
+		"This reply has no text to build on. Branch from another card, or start a new conversation."
 	);
 	// The card says the same: its Branch button is off, and its tooltip is the same sentence.
 	const branch = page.locator(`article[data-node-id="${id}"] button[aria-label="Branch"]`);
 	await expect(branch).toBeDisabled();
-	await expect(branch).toHaveAttribute('title', "This reply didn't finish. Branch from another card, or start a new conversation.");
+	await expect(branch).toHaveAttribute('title', "This reply has no text to build on. Branch from another card, or start a new conversation.");
 });

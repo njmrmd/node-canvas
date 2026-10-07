@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { Handle, NodeResizeControl, Position, type NodeProps } from '@xyflow/svelte';
 	import { copy } from '$lib/canvas/copy';
 	import { presentError } from '$lib/canvas/errors';
@@ -13,6 +14,9 @@
 	const isTarget = $derived(store.target === id);
 	const queued = $derived(store.queuePosition(id));
 	const failure = $derived(node?.status === 'error' && node.error ? presentError(node.error) : null);
+	/** A failure's way out: the key page, or sign-in and then back to the canvas. */
+	const actionHref = (to: 'keys' | 'sign-in') =>
+		to === 'keys' ? resolve('/keys') : `${resolve('/sign-in')}?next=${encodeURIComponent(resolve('/canvas'))}`;
 	const status = $derived.by(() => {
 		if (!node) return '';
 		if (queued !== null) return copy('node.status.queued', { n: queued });
@@ -153,7 +157,15 @@
 				{:else if node.status === 'streaming'}
 					<span class="pending">…</span>
 				{/if}
-				{#if failure}<p class="error" role="status">{failure.message}</p>{/if}
+				{#if failure}
+					<p class="error" role="status">
+						{failure.message}
+						{#if failure.action}
+							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- built from resolve(); the query string is not a route -->
+							<a class="nodrag action-link" href={actionHref(failure.action.to)}>{failure.action.label}</a>
+						{/if}
+					</p>
+				{/if}
 			</div>
 		{/if}
 		{#if retryable || continuable || regenerable}
@@ -319,6 +331,11 @@
 	.error {
 		margin: var(--space-2) 0 0;
 		color: var(--danger);
+	}
+	.action-link {
+		margin-left: var(--space-1);
+		color: inherit;
+		text-decoration: underline;
 	}
 	.actions {
 		display: flex;
