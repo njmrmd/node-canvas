@@ -36,6 +36,14 @@ test('on a phone-width window the landing page stays readable, with the desktop 
 	await expect(page.getByLabel('Email')).toBeHidden();
 });
 
+test('at desktop width the landing page shows no phone note', async ({ page }) => {
+	// 900 px is the narrowest width the app serves as desktop (the notices show under it).
+	await page.setViewportSize({ width: 900, height: 800 });
+	await page.goto('/');
+	await expect(page.getByRole('heading', { level: 1, name: 'A conversation is a graph, not a list.' })).toBeVisible();
+	await expect(page.getByRole('note')).toBeHidden();
+});
+
 test('a shared link unfurls with a title, a description and a 1200 × 630 picture', async ({ page, request }) => {
 	await page.goto('/');
 	const property = (name: string) => page.locator(`meta[property="${name}"]`);
