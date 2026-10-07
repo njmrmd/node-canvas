@@ -163,6 +163,9 @@ const PORT_RULED = {
     "This model isn't available any more. Choose another in the top bar, then press Retry.",
   "node.action.openKeys": "Open the key page",
   "node.action.signIn": "Sign in (new tab)",
+  /* Plan 4: a canvas load that failed, as opposed to one that is only slow (canvas.loadError). */
+  "canvas.loadFailed":
+    "Couldn't load your canvas. Check your connection, then retry.",
 } as const;
 
 export const COPY = {
