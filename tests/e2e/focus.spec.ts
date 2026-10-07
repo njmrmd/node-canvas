@@ -64,6 +64,52 @@ test('Copy all says so when the clipboard refuses', async ({ page, signIn }) => 
 	await expect(panel.getByRole('button', { name: "Couldn't copy" })).toBeVisible();
 });
 
+test('a streaming reply in the linear view rewrites only its last paragraph', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	await page.getByRole('button', { name: 'Linear view' }).click();
+	const panel = page.getByRole('region', { name: 'Linear view' });
+	// [long] puts a blank line after every 40 words; [slow] spaces the tokens 60 ms apart, so paragraphs arrive one by one.
+	await send(page, '[slow][long] several paragraphs', { wait: false });
+	const reply = panel.locator('.reply');
+	const chunks = reply.locator(':scope > span');
+	await expect.poll(() => chunks.count(), { timeout: 20_000 }).toBeGreaterThanOrEqual(3);
+	type Watch = { spans: Element[]; texts: (string | null)[]; touched: (number | 'added')[]; observer: MutationObserver };
+	// The chunks drawn now, and from here on which of them each mutation touches.
+	const recorded = await reply.evaluate((el) => {
+		const spans = [...el.children];
+		const touched: (number | 'added')[] = [];
+		const observer = new MutationObserver((records) => {
+			for (const r of records) {
+				const span = (r.target instanceof Element ? r.target : r.target.parentElement)?.closest('.reply > span');
+				const i = span ? spans.indexOf(span) : -1;
+				touched.push(i === -1 ? 'added' : i); // a new chunk, or the reply itself gaining one
+			}
+		});
+		observer.observe(el, { subtree: true, childList: true, characterData: true });
+		(window as unknown as { __watch: Watch }).__watch = { spans, texts: spans.map((s) => s.textContent), touched, observer };
+		return spans.length;
+	});
+	// More tokens arrive, at least as far as the next paragraph.
+	await expect.poll(() => chunks.count(), { timeout: 20_000 }).toBeGreaterThan(recorded);
+	const after = await reply.evaluate((el) => {
+		const { spans, texts, touched, observer } = (window as unknown as { __watch: Watch }).__watch;
+		observer.disconnect();
+		const now = [...el.children];
+		return {
+			earlierKept: spans.slice(0, -1).map((s, i) => s === now[i] && s.textContent === texts[i]),
+			lastGrewInPlace: spans.at(-1) === now[spans.length - 1] && !!now[spans.length - 1].textContent?.startsWith(texts.at(-1) ?? ''),
+			touchedRecorded: [...new Set(touched.filter((t) => t !== 'added'))],
+			added: touched.includes('added')
+		};
+	});
+	// The earlier chunks are the same elements with the same text; only the last one, and the new ones, changed.
+	expect(after.earlierKept).toEqual(Array(recorded - 1).fill(true));
+	expect(after.lastGrewInPlace).toBe(true);
+	expect(after.touchedRecorded.filter((i) => i !== recorded - 1)).toEqual([]);
+	expect(after.added).toBe(true);
+});
+
 test('the shortcuts sheet lists all 21 shortcuts', async ({ page, signIn }) => {
 	await signIn();
 	await page.goto('/canvas');

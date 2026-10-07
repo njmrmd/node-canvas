@@ -28,6 +28,26 @@ test('send, stream, and find it again after a reload', async ({ page, signIn }) 
 	await expect(page.locator(`article[data-node-id="${id}"]`)).toHaveAttribute('data-status', 'complete');
 });
 
+test('a frame type this page does not know is skipped, and the reply is saved', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	// A newer server can send a frame type an open tab has never seen, as Plan 3's ping was to Plan 2's tabs.
+	const frames = [
+		{ type: 'ping' },
+		{ type: 'text', text: 'Before the new frame, ' },
+		{ type: 'a_frame_from_a_newer_server' },
+		{ type: 'text', text: 'and after it.' },
+		{ type: 'done', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 2 } }
+	];
+	await page.route('**/api/chat', (route) =>
+		route.fulfill({ status: 200, contentType: 'text/event-stream', body: frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('') })
+	);
+	const id = await send(page, 'a reply from a newer server');
+	await expect(page.locator(`article[data-node-id="${id}"]`)).toContainText('Before the new frame, and after it.');
+	// Had the frame failed the card, the error it left would make the server refuse the node, and the reply would be lost.
+	await waitSaved(page, 'Before the new frame, and after it.');
+});
+
 test('branching sends exactly the ancestor path', async ({ page, signIn }) => {
 	await signIn();
 	await page.goto('/canvas');

@@ -16,7 +16,11 @@ export function isUuid(value: unknown): value is string {
 	return typeof value === 'string' && UUID.test(value);
 }
 
-/** A page of the canvas load stays well under Vercel's 4.5 MB response cap, even with JSON escaping. */
+/**
+ * The canvas load's page budget, counted on stored text (`octet_length`) plus `NODE_OVERHEAD_BYTES` a
+ * node. 3 MiB leaves ordinary JSON escaping well under Vercel's 4.5 MB cap on a buffered response,
+ * while text crafted to escape heavily (`\u0001` takes six bytes in JSON) could exceed it.
+ */
 export const PAGE_BYTES = 3 * 1024 * 1024;
 /** How many rows one page looks at when choosing what fits. */
 const PAGE_SCAN = 500;

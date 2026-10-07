@@ -67,6 +67,8 @@ export type UndoState = {
 	removed: ConversationNode[];
 	/** The composer target the delete cleared, or null when the target was not in the branch. */
 	clearedTarget: string | null;
+	/** The store's count of target choices at the delete: Undo puts `clearedTarget` back only if none came since. */
+	targetChanges: number;
 	/** The delete moved keyboard focus off the branch, so Undo gives it back to the restored card. */
 	refocus: boolean;
 };
@@ -93,7 +95,8 @@ export class CanvasStore {
 	graph = $state.raw<ConversationGraph>({ nodesById: {}, nodeIds: [] });
 	/**
 	 * Changed only by Branch, send (Continue and Regenerate send too), New conversation, Enter on a
-	 * focused card (Task 10), and deleting the target or an ancestor of it (then null; Undo puts it back).
+	 * focused card (Task 10), and deleting the target or an ancestor of it (then null; Undo puts it
+	 * back if nothing else has changed it since).
 	 */
 	target = $state<string | null>(null);
 	following = $state<string | null>(null);
@@ -152,6 +155,11 @@ export class CanvasStore {
 	private readonly cleanups: (() => void)[] = [];
 	private rateLimitReset: ReturnType<typeof setTimeout> | null = null;
 	private undoTimer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * How many times the user has chosen the target: Branch, a send, New conversation, Enter on a card.
+	 * A delete clearing it and Undo restoring it are not choices, so they leave the count alone.
+	 */
+	private targetChanges = 0;
 
 	constructor(init: CanvasInit) {
 		const loaded = fromWire(init.nodes);
@@ -303,6 +311,7 @@ export class CanvasStore {
 	bindComposer(id: string): void {
 		if (!this.graph.nodesById[id]) return;
 		this.target = id;
+		this.targetChanges++;
 		this.saver.markView();
 		this.composerRequest++;
 	}
@@ -333,11 +342,13 @@ export class CanvasStore {
 
 	branch(id: string): void {
 		this.target = id;
+		this.targetChanges++;
 		this.saver.markView();
 	}
 
 	newConversation(): void {
 		this.target = null;
+		this.targetChanges++;
 		this.saver.markView();
 	}
 
@@ -422,6 +433,7 @@ export class CanvasStore {
 		graph = tooLong ? failNode(graph, id, { code: 'invalid_request', message: tooLong.message }) : startStreaming(graph, id);
 		this.commit(graph);
 		this.target = id;
+		this.targetChanges++;
 		this.following = id;
 		this.layoutVersion++;
 		this.saver.markView();
@@ -463,7 +475,9 @@ export class CanvasStore {
 		if (event.type === 'text') this.commit(appendText(this.graph, id, event.text));
 		else if (event.type === 'thinking') this.commit(appendThinking(this.graph, id, event.text));
 		else if (event.type === 'done') this.commit(completeNode(this.graph, id, event.usage));
-		else this.commit(failNode(this.graph, id, { code: event.code, message: event.message }));
+		else if (event.type === 'error') this.commit(failNode(this.graph, id, { code: event.code, message: event.message }));
+		// Any other type is one a newer server sends and this page does not know: it does nothing. A bare
+		// `else` would fail the card, as Plan 2's did on the `ping` frame.
 	}
 
 	private settle(id: string, outcome: Outcome): void {
@@ -563,12 +577,13 @@ export class CanvasStore {
 			rootId: id,
 			removed: removed.map((n) => (n.status === 'streaming' ? { ...n, status: 'interrupted' as const } : n)),
 			clearedTarget,
+			targetChanges: this.targetChanges,
 			refocus
 		});
 		this.layoutVersion++;
 	}
 
-	/** Puts the last deleted branch back, and the composer target with it if nothing else took its place. */
+	/** Puts the last deleted branch back, and the composer target with it if nothing else has changed the target since. */
 	undoRemove(): void {
 		const undo = this.undo;
 		if (!undo) return;
@@ -580,7 +595,8 @@ export class CanvasStore {
 		if (parentId !== null) graph = this.openTo(graph, parentId);
 		this.saver.cancelDeletion(undo.rootId);
 		this.commit(graph); // every restored node is new to the graph, so every one is saved again, parents first
-		if (undo.clearedTarget && this.target === null) {
+		// A target chosen since the delete, even New conversation, is the user's choice: Undo must not override it.
+		if (undo.clearedTarget && this.target === null && this.targetChanges === undo.targetChanges) {
 			this.target = undo.clearedTarget;
 			this.saver.markView();
 		}

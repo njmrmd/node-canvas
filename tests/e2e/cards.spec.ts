@@ -17,6 +17,25 @@ test('deleting an ancestor of the target clears the composer, and Undo rebinds i
 	await expect(page.getByTestId('composer-target')).toHaveAttribute('data-target-id', b);
 });
 
+test('Undo leaves the composer alone when the target was chosen again since the delete', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const target = page.getByTestId('composer-target');
+	const a = await send(page, 'the card to branch from');
+	const b = await send(page, 'the card to delete');
+	await expect(target).toHaveAttribute('data-target-id', b);
+	await page.locator(`article[data-node-id="${b}"]`).getByRole('button', { name: 'Delete' }).click();
+	await expect(target).toHaveAttribute('data-target-id', '');
+	await page.locator(`article[data-node-id="${a}"]`).getByRole('button', { name: 'Branch' }).click();
+	await expect(target).toHaveAttribute('data-target-id', a);
+	await page.getByRole('button', { name: 'New conversation' }).click();
+	await expect(target).toHaveAttribute('data-target-id', '');
+	await page.getByRole('button', { name: 'Undo' }).click();
+	// Undo is one synchronous store call, so once b is drawn again the target is what Undo left it.
+	await expect(page.locator(`article[data-node-id="${b}"]`)).toBeVisible();
+	await expect(target).toHaveAttribute('data-target-id', '');
+});
+
 test('a delete survives a reload, and so does its undo', async ({ page, signIn }) => {
 	await signIn();
 	await page.goto('/canvas');

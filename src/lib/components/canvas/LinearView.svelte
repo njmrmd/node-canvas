@@ -4,7 +4,7 @@
 	import { copy } from '$lib/canvas/copy';
 	import { pathToRoot } from '$lib/canvas/graph';
 	import { useCanvas } from '$lib/canvas/store.svelte';
-	import { transcriptText } from '$lib/canvas/transcript';
+	import { paragraphs, transcriptText } from '$lib/canvas/transcript';
 
 	const store = useCanvas();
 	const path = $derived(store.target && store.graph.nodesById[store.target] ? pathToRoot(store.graph, store.target) : []);
@@ -51,7 +51,8 @@
 			{#each path as node (node.id)}
 				<li>
 					<p class="you">{node.prompt}</p>
-					<p class="reply">{node.response || '…'}</p>
+					<!-- One text node per paragraph, so a streaming token rewrites the last, not the whole reply. -->
+					<p class="reply">{#each paragraphs(node.response) as chunk, i (i)}<span>{chunk}</span>{:else}…{/each}</p>
 				</li>
 			{/each}
 		</ol>
