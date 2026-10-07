@@ -94,14 +94,14 @@
   --text-code: 400 13px/20px var(--font-canvas-mono);
 
   /*
-   * §5.4: the user's text is the same size and colour as the assistant's and
-   * differs only in weight. Role is signalled by position and typography, never
-   * hue — so these two are tokens, not a `font-weight: 500` someone types into
-   * `<NodeCard>` and someone else later "tidies" away.
+   * §5.4: the user's text and the assistant's differ only in weight; role is
+   * signalled by position and typography, never hue. Strong text (headings,
+   * the Send button) reaches up to 600, keeping each font-weight a token rather
+   * than a literal someone types into a component and someone else later "tidies" away.
    */
   --weight-user-text: 500;
   --weight-assistant-text: 400;
-  --weight-strong: 600;
+  --weight-strong: 600; /* headings and the Send button: a step above user text */
 
   /* ---- §5.2 Spacing — 4px base ------------------------------------------ */
 
@@ -196,8 +196,8 @@
   --shadow-1: 0 1px 2px light-dark(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.3));
   --shadow-2: 0 4px 14px light-dark(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.34));
   --shadow-3: 0 16px 40px light-dark(rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.44));
-  --control-height-sm: 28px; /* card buttons and sheet edges */
-  --scrim: rgb(0 0 0 / 0.5); /* sheet backdrop */
+  --control-height-sm: 28px; /* the height of the small buttons on cards, in the linear view and in the shortcuts sheet */
+  --scrim: rgb(0 0 0 / 0.5); /* modal backdrop */
 
   /* ---- §5.6 Motion ------------------------------------------------------ */
 

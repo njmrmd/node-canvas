@@ -29,6 +29,17 @@ test('cards off the path to the composer target are dimmed, and the toggle turns
 	await expect(page.locator('article.dim')).toHaveCount(0);
 });
 
+test('a failed card off the path stays at full strength, so its error reads', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const failed = await send(page, '[refuse] off the path', { wait: false });
+	await expect(page.locator(`article[data-node-id="${failed}"]`)).toHaveAttribute('data-status', 'error');
+	await page.getByRole('button', { name: 'New conversation' }).click();
+	const other = await send(page, 'on the path');
+	await expect(page.locator(`article[data-node-id="${other}"]`)).not.toHaveClass(/\bdim\b/);
+	await expect(page.locator(`article[data-node-id="${failed}"]`)).not.toHaveClass(/\bdim\b/);
+});
+
 test('the linear view shows the path to the target and copies it', async ({ page, context, signIn }) => {
 	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 	await signIn();

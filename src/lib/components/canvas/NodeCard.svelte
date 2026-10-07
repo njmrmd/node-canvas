@@ -38,6 +38,8 @@
 	const children = $derived(store.childCount(id));
 	const hiddenCount = $derived(node?.collapsed ? store.hiddenBelow(id) : 0);
 	const oneLine = $derived(node?.bodyCollapsed ? summaryLine(node) : '');
+	/** A failed card stays at full strength: its error line must stay readable (AA) wherever it is. */
+	const dimmedHere = $derived(store.dimmed(id) && node?.status !== 'error');
 	/** Whether this resize changed the card's size: a click on the corner without a drag does not, and must not pin it. */
 	let resizeChanged = false;
 
@@ -77,7 +79,7 @@
 		class="card"
 		class:target={isTarget}
 		class:sized
-		class:dim={store.dimmed(id)}
+		class:dim={dimmedHere}
 		data-node-id={id}
 		data-parent-id={node.parentId ?? ''}
 		data-status={node.status}
