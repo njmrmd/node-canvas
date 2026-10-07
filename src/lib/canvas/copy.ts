@@ -157,10 +157,10 @@ const PORT_RULED = {
   "linearview.copyFailed": "Couldn't copy",
   /* Plan 3: the visible 100% control spec §4 lists beside zoom in/out and fit. */
   "zoom.reset": "Zoom to 100%",
-  /* Plan 3: spec §2 / §8's notice below ~900 px. The old app had none; this is new wording. */
+  /* Plan 3: spec §2 / §8's notice below ~900 px. The old app had none; this is new wording. Plan 4 dropped
+   * "Your canvas is saved and waiting there", because the notice also shows to people with no canvas. */
   "desktop.title": "node-canvas is built for desktop",
-  "desktop.body":
-    "Open it in a browser window at least 900 pixels wide. Your canvas is saved and waiting there.",
+  "desktop.body": "Open it in a browser window at least 900 pixels wide.",
 } as const;
 
 export const COPY = {
