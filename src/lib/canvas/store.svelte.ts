@@ -104,7 +104,7 @@ export class CanvasStore {
 	layoutVersion = $state(0);
 	queueVersion = $state(0);
 	model = $state('');
-	// Raw: a snapshot is only ever replaced whole, and the reset timer must see the same object it was given.
+	// Raw: a snapshot is only ever replaced whole, never changed in place, so a deep proxy buys nothing.
 	rateLimit = $state.raw<RateLimitSnapshot | null>(null);
 	/** When the hourly window resets, in epoch milliseconds — the limit banner counts down to it. */
 	rateLimitResetAt = $state<number | null>(null);
