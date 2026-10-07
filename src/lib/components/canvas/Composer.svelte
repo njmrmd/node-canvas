@@ -111,7 +111,7 @@
 		border: 0;
 		background: var(--cy-gold);
 		color: var(--cy-paper-deep);
-		font-weight: 600;
+		font-weight: var(--weight-strong);
 		cursor: pointer;
 	}
 	button[type='submit']:disabled {

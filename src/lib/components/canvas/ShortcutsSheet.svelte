@@ -34,7 +34,7 @@
 		font: var(--text-sm);
 	}
 	dialog::backdrop {
-		background: rgb(0 0 0 / 0.5);
+		background: var(--scrim);
 	}
 	h2 {
 		margin: 0 0 var(--space-4);
@@ -59,7 +59,7 @@
 	}
 	button {
 		font: var(--text-xs);
-		min-height: 28px;
+		min-height: var(--control-height-sm);
 		padding: 0 var(--space-3);
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--cy-paper-edge);

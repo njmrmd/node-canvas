@@ -238,12 +238,12 @@
 		color: var(--cy-ink);
 		border: 1px solid var(--cy-paper-edge);
 		border-radius: var(--radius-md);
-		box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+		box-shadow: var(--shadow-1);
 		font: var(--text-sm);
 		transition: opacity var(--dur-base) var(--ease-out);
 	}
 	.card.dim:not(:hover):not(:focus-within) {
-		opacity: 0.45;
+		opacity: 0.75; /* 0.75 keeps body and soft text at WCAG AA (4.5:1); the faded edges and the gold path carry the focus. */
 	}
 	.card.sized {
 		overflow: hidden;
@@ -283,7 +283,7 @@
 	}
 	button {
 		font: var(--text-xs);
-		min-height: 28px;
+		min-height: var(--control-height-sm);
 		padding: 0 var(--space-3);
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--cy-paper-edge);

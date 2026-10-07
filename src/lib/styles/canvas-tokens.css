@@ -101,6 +101,7 @@
    */
   --weight-user-text: 500;
   --weight-assistant-text: 400;
+  --weight-strong: 600;
 
   /* ---- §5.2 Spacing — 4px base ------------------------------------------ */
 
@@ -195,6 +196,8 @@
   --shadow-1: 0 1px 2px light-dark(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.3));
   --shadow-2: 0 4px 14px light-dark(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.34));
   --shadow-3: 0 16px 40px light-dark(rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.44));
+  --control-height-sm: 28px; /* card buttons and sheet edges */
+  --scrim: rgb(0 0 0 / 0.5); /* sheet backdrop */
 
   /* ---- §5.6 Motion ------------------------------------------------------ */
 

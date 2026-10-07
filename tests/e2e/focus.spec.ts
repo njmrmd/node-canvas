@@ -13,6 +13,8 @@ test('cards off the path to the composer target are dimmed, and the toggle turns
 	const c = await send(page, 'second root');
 	const card = (id: string) => page.locator(`article[data-node-id="${id}"]`);
 	await fit(page);
+	await page.mouse.move(2, 2); // over the top bar: no card is hovered, so dimming shows
+	await expect(card(a)).toHaveCSS('opacity', '0.75');
 	await expect(card(a)).toHaveClass(/\bdim\b/);
 	await expect(card(b)).toHaveClass(/\bdim\b/);
 	await expect(card(c)).not.toHaveClass(/\bdim\b/);
