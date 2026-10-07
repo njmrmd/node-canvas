@@ -4,8 +4,10 @@
  * rounded bar standing in for a line of type, so nothing needs translating and nothing claims to be a
  * screenshot.
  *
- * The geometry lives here, in a 360 × 200 grid that scales with its box, so the Svelte component and the
- * link-preview image script (`pnpm og:image`) draw the same picture and cannot drift apart.
+ * The geometry lives here, in a 360 × 200 grid that scales with its box, and the Svelte component and the
+ * link-preview image script (`pnpm og:image`) both draw it. Only the geometry is shared: the stroke widths and
+ * opacities are written in both places (`ConversationGraph.svelte`'s styles and `drawingSvg` below), so change
+ * both.
  */
 export const VIEWBOX = { width: 360, height: 200 } as const;
 
