@@ -36,6 +36,17 @@ Design: `docs/superpowers/specs/2026-09-25-sveltekit-port-design.md`.
   not the nodes. Never put node text back into a `load`: Vercel caps a buffered function response
   at 4.5 MB.
 
+## Landing page and link card
+
+- The landing page's words live in `src/lib/copy/landing.ts`; the canvas's in `src/lib/canvas/copy.ts`.
+  No UI text as literals in components.
+- The three-card drawing's geometry lives in `src/lib/landing/drawing.ts`. The landing page's
+  `ConversationGraph.svelte` and `pnpm og:image` both draw from it. After changing the drawing or the
+  landing copy, run `pnpm og:image` and commit `static/og.png`; never edit the PNG by hand.
+- The root layout carries the link card's meta tags, with absolute URLs from the request's origin.
+- Below 900 px every page shows the desktop notice instead of itself, except `/`, which stays readable
+  with a compact note above it.
+
 ## Checks before handing work over
 
 ```bash

@@ -232,7 +232,7 @@ Carried over, not simplified. Each item has a unit or database test.
 | `/keys` | Key manager, sign out, delete account |
 | `/canvas` | The canvas app (client-rendered) |
 
-A root layout renders `DesktopOnlyNotice` instead of the page below ~900 px width.
+A root layout renders `DesktopOnlyNotice` instead of the page below 900 px width — except on `/`, which stays readable with a compact note above it (Plan 4: the landing page is the page a stranger opens from a shared link, often on a phone).
 
 ### Canvas state — three modules
 
@@ -278,7 +278,7 @@ diagnostic logging), `canvas-tokens.css`, and their `*.test.ts` files.
 - **Vercel** — Git integration; preview per PR; production from `main`; repo auto-merge on.
 - **Neon** — via the Vercel integration. Preview and Production use separate `KEY_VAULT_ENCRYPTION_KEY` values. Per-preview database branches: off initially.
 - **Environment** — `DATABASE_URL`, `DATABASE_URL_UNPOOLED` (migrations), `KEY_VAULT_ENCRYPTION_KEY`, optional `APP_ORIGIN`.
-- **Cutover** — once §1's criteria pass on `node-canvas-theta.vercel.app`: move any custom domain to the new project, archive `njmrmd/node-canvas-chat`. No data migration (fresh database).
+- **Cutover** — once §1's criteria pass on `node-canvas-theta.vercel.app`: move any custom domain to the new project, archive `njmrmd/node-canvas-chat`. No data migration (fresh database). The steps are in `docs/cutover.md`; as of 2026-10-07 there is no custom domain to move.
 
 ## 11. Risks
 
@@ -292,5 +292,5 @@ diagnostic logging), `canvas-tokens.css`, and their `*.test.ts` files.
 
 ## 12. Open items
 
-None blocking. Decided defaults the plan may revisit: the 900 px desktop
-threshold; 1.5 s save interval; per-preview Neon branches off.
+None blocking. Decided: the 900 px desktop threshold; the 1.5 s save interval;
+per-preview Neon branches on (since Plan 2).
