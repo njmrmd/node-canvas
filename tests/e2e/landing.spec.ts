@@ -35,3 +35,22 @@ test('on a phone-width window the landing page stays readable, with the desktop 
 	await expect(page.getByRole('heading', { name: 'node-canvas is built for desktop' })).toBeVisible();
 	await expect(page.getByLabel('Email')).toBeHidden();
 });
+
+test('a shared link unfurls with a title, a description and a 1200 × 630 picture', async ({ page, request }) => {
+	await page.goto('/');
+	const property = (name: string) => page.locator(`meta[property="${name}"]`);
+	await expect(property('og:site_name')).toHaveAttribute('content', 'node-canvas');
+	await expect(property('og:title')).toHaveAttribute('content', 'A conversation is a graph, not a list');
+	await expect(property('og:description')).toHaveAttribute('content', /^Branch any reply into a new direction/);
+	await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', /^Branch any reply into a new direction/);
+	await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute('content', 'summary_large_image');
+	const image = await property('og:image').getAttribute('content');
+	// Absolute, on this deployment's own origin: a crawler has no page to resolve a relative path against.
+	expect(image).toBe(new URL('/og.png', page.url()).href);
+	const response = await request.get(image!);
+	expect(response.status()).toBe(200);
+	expect(response.headers()['content-type']).toBe('image/png');
+	const png = await response.body();
+	// A PNG's IHDR chunk carries width and height as big-endian integers at bytes 16 and 20.
+	expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1200, 630]);
+});

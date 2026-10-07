@@ -18,6 +18,13 @@ export default defineConfig(({ mode }) => {
 						filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 				},
 				adapter: adapter(),
+				// The generated tsconfig covers src/ and tests/ only: add scripts/*.ts (pnpm og:image) to what
+				// `pnpm check` type-checks.
+				typescript: {
+					config: (config) => {
+						config.include.push('../scripts/**/*.ts');
+					}
+				},
 				csp: {
 					mode: 'auto',
 					directives: {
