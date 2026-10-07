@@ -165,7 +165,7 @@ const PORT_RULED = {
   "node.action.signIn": "Sign in (new tab)",
   /* Plan 4: a canvas load that failed, as opposed to one that is only slow (canvas.loadError). */
   "canvas.loadFailed":
-    "Couldn't load your canvas. Check your connection, then retry.",
+    "Couldn't load your canvas. Press Retry; if it keeps failing, reload the page.",
 } as const;
 
 export const COPY = {

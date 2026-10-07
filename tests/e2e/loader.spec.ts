@@ -11,7 +11,7 @@ test('a failed canvas load says so, and Retry loads it', async ({ page, signIn }
 			: route.continue()
 	);
 	await page.goto('/canvas');
-	await expect(page.getByText("Couldn't load your canvas. Check your connection, then retry.")).toBeVisible();
+	await expect(page.getByText("Couldn't load your canvas. Press Retry; if it keeps failing, reload the page.")).toBeVisible();
 	fail = false;
 	await page.getByRole('button', { name: 'Retry' }).click();
 	await expect(page.getByLabel('Message')).toBeVisible();
