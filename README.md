@@ -3,7 +3,7 @@
 A conversation is a graph, not a list. Bring your own Anthropic key and talk
 to it on a canvas of cards: branch any reply, keep every branch.
 
-Desktop only. MIT licensed.
+Desktop only (900 px and wider). On the canvas, press `?` for every keyboard shortcut. MIT licensed.
 
 ## Run it
 

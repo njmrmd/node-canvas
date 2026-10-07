@@ -17,6 +17,22 @@ Design: `docs/superpowers/specs/2026-09-25-sveltekit-port-design.md`.
 - Every node/key/view query is scoped by `user_id`.
 - Never log keys, tokens, passwords, prompts, responses or emails.
 
+## Canvas conventions
+
+- Canvas state lives in `src/lib/canvas/store.svelte.ts`; the deciding logic lives in the
+  framework-free modules beside it (`graph.ts`, `navigation.ts`, `shortcuts.ts`, `saver.ts`, …),
+  each with `node:test` tests. Put new logic there, not in components.
+- The composer target changes only through Branch (button or `B`), sending (Continue and
+  Regenerate included), New conversation, Enter on a focused card, and deleting the target or an
+  ancestor of it (Undo puts it back). Nothing else assigns `store.target` once the store is built.
+- Every canvas shortcut goes through `resolveShortcut` (`src/lib/canvas/shortcuts.ts`) and the one
+  `svelte:window` handler in `Canvas.svelte`; only Esc closing the linear view (decided in that
+  handler) and the composer's own Enter and Esc (in its textarea) skip `resolveShortcut`. A new
+  shortcut gets its row in `SHORTCUT_ROWS` too, so the `?` sheet never lists a key that does
+  nothing, or misses a shortcut that works.
+- The canvas loads its nodes from `GET /api/nodes`, page by page; the page data carries the view,
+  not the nodes. Never put node text back into a `load`: Vercel caps a response at 4.5 MB.
+
 ## Checks before handing work over
 
 ```bash
@@ -34,6 +50,9 @@ not in CI — run it before merging canvas changes.
 Browser tests sign in through `tests/support/seed-server.ts` (test-only):
 `signIn()` from `tests/e2e/fixtures.ts` creates a fresh user, key and
 session, so tests never spend the real sign-up/sign-in limits.
+
+`signIn()` talks to a loopback seed server that only the local rig starts, so specs that use it
+cannot run against a deployed server.
 
 ## Commits
 

@@ -175,14 +175,17 @@ them with the carried-over copy.
 
 ### Canvas load
 
-`/canvas/+page.server.ts` `load` returns `{ nodes, view, models, email }`
-for the signed-in user. The page component itself renders client-side only
-(`ssr = false`).
+`/canvas/+page.server.ts` `load` returns `{ view, hasKey, models, defaultModelId, email }` for
+the signed-in user. The nodes are not in the page data: the page fetches them from
+`GET /api/nodes` before it builds the canvas — pages in creation order of at most 3 MiB of text
+(or one larger node alone) — so no canvas is too big to open under Vercel's 4.5 MB response cap
+(Plan 3). The page component itself renders client-side only (`ssr = false`).
 
 ### JSON routes
 
-All three require a session, `assertSameOrigin` and `Content-Type: application/json`.
+The write routes require a session and `assertSameOrigin`, and `Content-Type: application/json` when they take a body; the read route requires a session.
 
+- **`GET /api/nodes[?after=<cursor>]`** — one page of the canvas load: `{ nodes: NodeWire[], next: string | null }`, in `(created_at, id)` order. The cursor is the last node's exact `created_at` and id.
 - **`PUT /api/nodes`** — body `{ upserts: NodeWire[], view?: ViewWire }`.
   - Body cap 4 MB (under Vercel's 4.5 MB request limit; one node at the per-field caps below can reach ~2.7 MB of UTF-8); at most 200 nodes per call. The client splits larger saves.
   - Each node is shape-checked; `prompt` ≤ `MAX_MESSAGE_CHARS`; `response`/`thinking` ≤ 400,000 chars; numbers finite; enums valid.
@@ -237,6 +240,7 @@ A root layout renders `DesktopOnlyNotice` instead of the page below ~900 px widt
   - Actions: `send`, `branch`, `newConversation`, `stop`, `retry`, `continue`, `remove`, `undoRemove`, `moved`, `resized`, `toggleCollapsed`, `toggleBodyCollapsed`, `tidy`, `nudge`.
   - **Invariant:** `target` changes only through `branch`, `send`, `newConversation`, Enter on a focused card, or deletion of the target (then `null`). A pane or card click never changes it.
   - Layout through the carried `layout.ts`: `autoPlaceOnCreate` + `reflowChildrenOnCreate` on send; `reflowChildrenOnCreate` once on resize end; `tidyLayout` on Tidy. Heights from Svelte Flow's measured sizes.
+  - Plan 3 also gave it: `focusedId` (keyboard focus, never the target), `focusPath` (on by default, `F`), `structure` (children and the hidden set, rebuilt per `layoutVersion`), `pathIds`, `transcriptOpen`, `shortcutsOpen`; and `continueReply`, `regenerate`, `bindComposer`, `branchFromCard`, `focusCard`, `resizeBy`.
 - **`streams.ts`** — up to 3 concurrent streams, FIFO queue beyond that, 60 s first-token watchdog, `AbortController` per node, events applied through `graph.ts` (`appendText`, `completeNode`, `failNode`, `interruptNode`). Uses the carried `stream.ts` client.
 - **`saver.ts`** — a set of dirty node ids plus a dirty-view flag; flushes every 1.5 s, on `visibilitychange → hidden`, and on `pagehide` (`fetch` with `keepalive`, which browsers cap at 64 KB per request — so the unload flush sends the streaming node and view first and anything beyond the cap is best-effort; the regular 1.5 s flush is what guarantees saving); splits into ≤ 200-node / ≤ 4 MB batches, parents first; on any non-network failure raises `saveError` (banner) and keeps the ids dirty; offline → waits for `online`.
 
