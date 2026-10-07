@@ -125,7 +125,7 @@ are under "Resolved in Plan 4".
   server refuses, so the reply is lost on reload; Plan 3's `ping` was the frame that needed Vercel Skew
   Protection or a reload of open tabs at deploy. Plan 3's bundle ignores unknown frame types; a changed
   frame or API shape still needs Skew Protection or a backward-compatible change (`docs/cutover.md` §1
-  turns it on).
+  checks it is on).
 
 ### Tests worth adding
 
