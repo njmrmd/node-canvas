@@ -173,4 +173,8 @@ describe('why a card cannot be branched from', () => {
 			});
 		}
 	}
+
+	it('a reply of only whitespace is no text: branch.failed', () => {
+		assert.equal(branchBlockedKey(node('complete', '  \n')), 'branch.failed');
+	});
 });
