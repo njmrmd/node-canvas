@@ -20,19 +20,33 @@ describe('presentError', () => {
 		const p = presentError({ code: 'unauthenticated', message: 'Please sign in to continue.' });
 		assert.equal(p.kind, 'signed_out');
 		assert.equal(p.category, 'Signed out');
-		assert.equal(p.message, "You've been signed out. Sign in again to keep going.");
-		assert.deepEqual(p.action, { label: 'Sign in', to: 'sign-in' });
+		assert.equal(
+			p.message,
+			"You've been signed out. Sign in again in the new tab this opens, then come back here — this tab keeps your changes and saves them."
+		);
+		assert.deepEqual(p.action, { label: 'Sign in (new tab)', to: 'sign-in' });
 	});
 
 	it('says a model that is no longer offered is unavailable, and where to pick another', () => {
 		const p = presentError({ code: 'unsupported_model', message: 'x' });
 		assert.equal(p.kind, 'model');
-		assert.equal(p.message, "This model isn't available any more. Choose another in the top bar, then send again.");
+		assert.equal(p.message, "This model isn't available any more. Choose another in the top bar, then press Retry.");
 		assert.equal(p.action, null);
 	});
 
 	it('gives every other failure no action', () => {
-		for (const code of ['network', 'timeout', 'model_declined', 'rate_limited', 'provider_unavailable', 'internal_error'] as const) {
+		// invalid_request with a message that is not about length, and not_found (a code no line is written for), fall to the generic line.
+		for (const code of [
+			'network',
+			'timeout',
+			'model_declined',
+			'rate_limited',
+			'provider_unavailable',
+			'internal_error',
+			'payload_too_large',
+			'invalid_request',
+			'not_found'
+		] as const) {
 			assert.equal(presentError({ code, message: 'x' }).action, null, code);
 		}
 	});

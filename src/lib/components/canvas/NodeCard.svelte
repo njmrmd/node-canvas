@@ -14,9 +14,6 @@
 	const isTarget = $derived(store.target === id);
 	const queued = $derived(store.queuePosition(id));
 	const failure = $derived(node?.status === 'error' && node.error ? presentError(node.error) : null);
-	/** A failure's way out: the key page, or sign-in and then back to the canvas. */
-	const actionHref = (to: 'keys' | 'sign-in') =>
-		to === 'keys' ? resolve('/keys') : `${resolve('/sign-in')}?next=${encodeURIComponent(resolve('/canvas'))}`;
 	const status = $derived.by(() => {
 		if (!node) return '';
 		if (queued !== null) return copy('node.status.queued', { n: queued });
@@ -160,9 +157,16 @@
 				{#if failure}
 					<p class="error" role="status">
 						{failure.message}
-						{#if failure.action}
-							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- built from resolve(); the query string is not a route -->
-							<a class="nodrag action-link" href={actionHref(failure.action.to)}>{failure.action.label}</a>
+						{#if failure.action?.to === 'keys'}
+							<a class="nodrag action-link" href={resolve('/keys')}>{failure.action.label}</a>
+						{:else if failure.action?.to === 'sign-in'}
+							<!-- A new tab, so this one keeps its unsaved changes and saves them once the session is back. `next=/` lands on the welcome page, not a second canvas. -->
+							<a
+								class="nodrag action-link"
+								href={resolve(`/sign-in?next=${encodeURIComponent('/')}`)}
+								target="_blank"
+								rel="noopener noreferrer">{failure.action.label}</a
+							>
 						{/if}
 					</p>
 				{/if}

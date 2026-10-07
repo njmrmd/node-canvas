@@ -17,7 +17,8 @@
  */
 
 /**
- * §9's table, verbatim.
+ * §9's table, verbatim, with Plan 4's exceptions: `coach.branch` and `node.status.thinkingLong` are gone because
+ * nothing rendered them, and `offline.banner` was rewritten (marked inline).
  *
  * `{name}` placeholders are the spec's own. They are part of the string's type,
  * which is what makes the arity check below work.
@@ -73,7 +74,6 @@ const SPEC_ELSEWHERE = {
   "node.error.auth": "Your model key was rejected. Reconnect it on the key page.",
   "node.error.timeout": "The model didn't respond in time.",
   "node.error.network": "Couldn't reach the model. Check your connection.",
-  "node.error.content_filter": "The provider declined this request.",
   "node.error.context_too_long":
     "This branch is too long for the model's context window.",
   "node.error.unknown": "Something went wrong on our side.",
@@ -93,7 +93,8 @@ const SPEC_ELSEWHERE = {
  * Strings §9 does not name, approved as final copy on the TES-46 review
  * rather than transcribed from the spec document itself — the review is the
  * source for these, not §9's table, so they stay out of `SPEC_9` to keep that
- * object's "every string here is verbatim in the spec" invariant honest.
+ * object's "every string here is verbatim in the spec" invariant honest (its one exception is the Plan 4
+ * rewrite of `offline.banner`, marked inline).
  * Shipped first as placeholders pending exactly this sign-off; see this
  * file's git history for the placeholder-vs-approved distinction while it
  * was open.
@@ -122,7 +123,7 @@ const REVIEW_APPROVED = {
  * `REVIEW_APPROVED` is: the source is the ruling, not the spec.
  */
 const PORT_RULED = {
-  /* The draft is over `MAX_MESSAGE_CHARS`; nothing is sent, the draft stays. */
+  /* Plan 2: the draft is over `MAX_MESSAGE_CHARS`; nothing is sent, the draft stays. */
   "composer.tooLong":
     "This message is too long to send. Shorten it to under 100,000 characters.",
   /* Plan 4: true of a reply that failed, stopped before any text, or finished empty — none will get text, so
@@ -152,13 +153,16 @@ const PORT_RULED = {
    * "Your canvas is saved and waiting there", because the notice also shows to people with no canvas. */
   "desktop.title": "node-canvas is built for desktop",
   "desktop.body": "Open it in a browser window at least 900 pixels wide.",
-  /* Plan 4: the failure lines spec §4.6 never covered, and the one action each failure offers. */
+  /* Plan 4: the failure lines spec §4.6 never covered, and the one action each failure offers. Sign in opens a
+   * new tab, because leaving this one would lose what changed since the session ended (the last save would be
+   * refused); the card's own tab saves it once the session is back. */
   "node.error.noKey": "No model key is connected. Connect one on the key page.",
-  "node.error.signedOut": "You've been signed out. Sign in again to keep going.",
+  "node.error.signedOut":
+    "You've been signed out. Sign in again in the new tab this opens, then come back here — this tab keeps your changes and saves them.",
   "node.error.unsupportedModel":
-    "This model isn't available any more. Choose another in the top bar, then send again.",
+    "This model isn't available any more. Choose another in the top bar, then press Retry.",
   "node.action.openKeys": "Open the key page",
-  "node.action.signIn": "Sign in",
+  "node.action.signIn": "Sign in (new tab)",
 } as const;
 
 export const COPY = {

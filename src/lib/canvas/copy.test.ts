@@ -67,7 +67,9 @@ test("rejects malformed calls at compile time", () => {
 /**
  * §9's table, re-listed from the spec rather than derived from the module, so
  * that dropping or renaming a key fails here instead of silently shrinking the
- * inventory the spec says is complete.
+ * inventory the spec says is complete. Two of the spec's keys are missing from
+ * this list on purpose: Plan 4 dropped `coach.branch` and `node.status.thinkingLong`
+ * because nothing renders them, and "drops the keys nothing renders" below asserts they are gone.
  */
 const SPEC_9_KEYS: readonly CopyKey[] = [
   "empty.headline",
@@ -139,7 +141,14 @@ test("renders the collapse counts", () => {
 });
 
 test("drops the keys nothing renders", () => {
-  for (const key of ["coach.branch", "node.status.thinkingLong", "node.action.remove", "node.action.openSettings", "node.action.branchFromEarlier"]) {
+  for (const key of [
+    "coach.branch",
+    "node.status.thinkingLong",
+    "node.action.remove",
+    "node.action.openSettings",
+    "node.action.branchFromEarlier",
+    "node.error.content_filter",
+  ]) {
     assert.ok(!(key in COPY), `${key} is still in the table`);
   }
 });

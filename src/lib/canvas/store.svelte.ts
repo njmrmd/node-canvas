@@ -26,6 +26,7 @@ import {
 	restoreBranch,
 	setBodyCollapsed,
 	setCollapsed,
+	setNodeModel,
 	settleOrphanedStreams,
 	startStreaming,
 	toMessages,
@@ -399,7 +400,10 @@ export class CanvasStore {
 			this.commit(failNode(this.graph, id, { code: 'invalid_request', message: tooLong.message }));
 			return;
 		}
-		this.commit(startStreaming(this.graph, id));
+		// A card stores the model it was sent with, and the card's own failure says that model is gone: send it with
+		// the one chosen now, or Retry would ask for the same model again.
+		const gone = this.graph.nodesById[id].error?.code === 'unsupported_model';
+		this.commit(startStreaming(gone ? setNodeModel(this.graph, id, this.model) : this.graph, id));
 		this.following = id;
 		this.enqueue(id);
 	}
