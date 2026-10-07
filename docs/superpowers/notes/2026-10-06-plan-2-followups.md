@@ -1,10 +1,11 @@
 # Plan 2, Plan 3 and Plan 4 follow-ups
 
-Open review findings from Plan 2's and Plan 3's reviews (per task, final, and re-reviews). Plan 2's
+Open review findings from the reviews of Plans 2, 3 and 4 (per task, final, and re-reviews). Plan 2's
 were brought up to date after Plan 3 and stay under "Still open"; Plan 3's own are under "Plan 3
 review findings (open)", apart from two saver points folded into Plan 2's Saver lines. Plan 4
 resolved the items marked "before cutover", except the resize corner, which stays under Canvas; the rest
-are under "Resolved in Plan 4".
+are under "Resolved in Plan 4". What Plan 4's own final review left open is under "Plan 4 review
+findings (open)".
 
 ## Resolved in Plan 3
 
@@ -142,3 +143,36 @@ are under "Resolved in Plan 4".
   a breach of §1.4's "only the streaming cards touch the DOM".
 - `savedNodesText`'s 3 × 2 s budget exceeds `expect.poll`'s 5 s.
 - The e2e teardown stops Postgres before the preview exits (the 57P01 noise).
+
+## Plan 4 review findings (open)
+
+### Copy and accessibility
+
+- A session that ends while you edit, without sending, shows only the generic save banner. A reload then
+  loses the unsaved moves, sizes, collapses and deletes. Give the saver's `onError` the code, and on
+  `unauthenticated` show a signed-out banner with the new-tab Sign in link; add an e2e. This predates
+  Plan 4, and it is the most important item here.
+- The status labels in `errors.ts` sit outside `copy.ts` and its tone test. Move them to `node.category.*`.
+- After the new-tab sign-in, "Welcome back" offers "Open the canvas", which opens a second canvas tab. A
+  page that says "go back to your canvas tab" would be better.
+- The landing page's external links have no "opens in a new tab" cue. `list-style: none` drops the list
+  role in Safari (add `role="list"`). The literal "." after the note title sits outside copy.
+- The loader's Retry removes itself, so keyboard focus drops to the page body and the status region
+  empties while it runs.
+
+### Canvas
+
+- The signed-out line stays on the card after recovery and after a reload. It never says "then press
+  Retry". Collapsed, it is truncated with no link.
+
+### Tests and tooling
+
+- `scripts/og-image.ts` copies four token colours as hex. Read them from `tokens.css`.
+- `pnpm og:image` renders with the host's system fonts. Regenerate on macOS to match the committed PNG.
+- The unfurl e2e reads the hydrated page. Add a `request.get('/')` assertion on the server HTML.
+- Crawlers cache `og.png` per URL. Rename the file when the picture changes.
+- The model e2e hard-codes `claude-opus-5-5`; import `DEFAULT_MODEL_ID`. No test pins that other failures
+  keep their model on Retry.
+- There is no automated check that the dimmed opacity keeps soft text at AA (≥ 0.73).
+- The style guard reads only the innermost braces, so CSS nesting slips through. It also has no `28px`
+  backstop and does not check named colours.
