@@ -24,6 +24,8 @@ targets `main`.
   - Plan 4 itself changes no stream frame or API shape (it touches pages, components, the canvas's
     client-side logic, copy and comments, and no server route), so this merge is safe either way.
   - If it stays off, reload open canvas tabs after any deploy that changes a frame or an API shape.
+- [ ] If the PR is not open yet: `git push -u origin plan-4-landing-copy-cutover`, then
+      `gh pr create --base main`.
 - [ ] Merge the Plan 4 PR once `verify` is green. Branch protection requires `verify` on `main` but does not
       bind repository admins (`enforce_admins` is off), so the owner can merge a red PR: look before you
       merge. Merging deploys production.
@@ -38,8 +40,10 @@ targets `main`.
 
 ## 2. Confirm spec §1's success criteria
 
-- [ ] `verify` is green on the merge commit's run: `gh run list --branch main --limit 1`.
-- [ ] Run `pnpm test:perf` locally: p95 ≤ 20 ms. CI does not run it.
+- [ ] `verify` is green on the merge commit's run (the workflow is `ci`; its one job is `verify`):
+      `gh run list --branch main --limit 1`.
+- [ ] On `main` after the merge (`git switch main && git pull`), run `pnpm test:perf` locally: p95 ≤ 20 ms.
+      CI does not run it.
 
 Where each criterion is tested:
 
@@ -85,6 +89,22 @@ Where each criterion is tested:
 - [ ] Retire what is left of the old deployment.
   - On 2026-10-07 there was no `node-canvas-chat` Vercel project under either scope, and the old app's last
     production deployment URL answered 410 ("The deployment has been removed").
-  - The Neon store `neon-cyan-dog` (team `rwazi-design` → Storage) still exists, with no connected project.
-  - The one remaining action: delete `neon-cyan-dog` once you no longer need the old app's canvases. Nothing
-    migrates from it. If the Storage tab still shows it attached to a project, detach it first.
+  - The team has two Neon stores, and their names look alike. Only one is the old app's:
+    - `neon-cyan-dog` (resource ID `store_1QVOvEqoKQ4XulQS`): the old app's database. On 2026-10-07 it had
+      no connected project. This is the only store to delete.
+    - `neon-sky-ferry` (resource ID `store_EzQpxKal4M223sy5`): **node-canvas's live production database**,
+      connected to `node-canvas` (production, preview). It holds every account, encrypted key and canvas.
+      **Never delete, detach or disconnect it.** Deleting it takes the app down and loses all of that.
+  - Before you delete anything, check which is which:
+    `vercel integration-resource inspect neon-cyan-dog --scope rwazi-design`. It must show
+    `store_1QVOvEqoKQ4XulQS` and `No connected projects.` If it shows a connected project or another ID,
+    stop: that is not the old app's store.
+  - Once you no longer need the old app's canvases, delete it:
+    `vercel integration-resource remove neon-cyan-dog --scope rwazi-design`, and confirm at the prompt.
+    Never add `--disconnect-all` (`-a`) or `--yes` (`-y`). Nothing migrates from it. Treat the deletion as
+    permanent. In the dashboard instead, open the store by its ID,
+    https://vercel.com/rwazi-design/~/stores/integration/store_1QVOvEqoKQ4XulQS, not by its name, and check
+    it lists no connected project before you delete it.
+  - Then check production still reaches its database: the junk-cookie `/sign-in` request in §1 answers 200,
+    and `vercel integration list --all --scope rwazi-design` still shows `neon-sky-ferry` connected to
+    `node-canvas`.
