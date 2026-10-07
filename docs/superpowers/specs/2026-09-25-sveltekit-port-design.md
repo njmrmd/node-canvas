@@ -178,8 +178,9 @@ them with the carried-over copy.
 `/canvas/+page.server.ts` `load` returns `{ view, hasKey, models, defaultModelId, email }` for
 the signed-in user. The nodes are not in the page data: the page fetches them from
 `GET /api/nodes` before it builds the canvas — pages in creation order of at most 3 MiB of text
-(or one larger node alone) — so no canvas is too big to open under Vercel's 4.5 MB response cap
-(Plan 3). The page component itself renders client-side only (`ssr = false`).
+(or one larger node alone) — so ordinary JSON escaping keeps every page well under Vercel's 4.5 MB
+cap on a buffered response; only text crafted to escape heavily could exceed it (Plan 3). The page
+component itself renders client-side only (`ssr = false`).
 
 ### JSON routes
 
@@ -214,7 +215,7 @@ Carried over, not simplified. Each item has a unit or database test.
 - **Provider key:** lives only in `provider_keys.ciphertext`; AES-256-GCM under `KEY_VAULT_ENCRYPTION_KEY` (server env only; different values for Preview and Production); AAD `"<userId>:anthropic"` so a moved row fails its tag check; decrypted only in `/api/chat` after the session check; never returned to the browser. **A database dump yields ciphertext, IV, tag and last four characters — nothing usable without the server key.**
 - **Passwords:** scrypt `N=32768, r=8, p=1`; dummy verify for unknown emails; constant-time compare; minimum 10 characters.
 - **Sessions:** 32 random bytes; only SHA-256 stored; cookie `httpOnly; Secure; SameSite=Lax`; 30-day expiry; sign-out and account deletion delete the rows.
-- **Cross-site requests:** SvelteKit `checkOrigin` for forms; `assertSameOrigin` + JSON content type for JSON routes.
+- **Cross-site requests:** SvelteKit `checkOrigin` for forms; `assertSameOrigin` on every state-changing API route, and a JSON content type wherever a body is read.
 - **Tenant isolation:** every node, view and key query is scoped by `user_id`; the composite FK prevents cross-user parent links; the upsert cannot overwrite another user's row.
 - **Headers:** CSP (`kit.csp`, no `unsafe-inline` scripts), HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `frame-ancestors 'none'`, restrictive `Permissions-Policy`.
 - **Database TLS:** `db-tls.mjs` (carried) — `sslmode=require|prefer|verify-ca` rewritten to `verify-full`; no-sslmode URLs get verified TLS.
@@ -235,22 +236,22 @@ A root layout renders `DesktopOnlyNotice` instead of the page below ~900 px widt
 
 ### Canvas state — three modules
 
-- **`canvas.svelte.ts`** — class `CanvasStore`:
+- **`store.svelte.ts`** — class `CanvasStore`:
   - `graph` (`$state.raw<ConversationGraph>`, immutable updates through the carried `graph.ts`), `target`, `following`, `focusedId` (keyboard focus), `undo` (last deleted subtree + prior target), `layoutVersion`.
-  - Actions: `send`, `branch`, `newConversation`, `stop`, `retry`, `continue`, `remove`, `undoRemove`, `moved`, `resized`, `toggleCollapsed`, `toggleBodyCollapsed`, `tidy`, `nudge`.
-  - **Invariant:** `target` changes only through `branch`, `send`, `newConversation`, Enter on a focused card, or deletion of the target (then `null`). A pane or card click never changes it.
+  - Actions: `send`, `branch`, `newConversation`, `stop`, `retry`, `continueReply`, `remove`, `undoRemove`, `moved`, `resized`, `toggleCollapsed`, `toggleBodyCollapsed`, `tidy`, `nudge`.
+  - **Invariant:** `target` changes only through Branch (button or `B`), sending (Continue and Regenerate included), New conversation, Enter on a focused card, and deleting the target or an ancestor of it (then `null`), which Undo reverses if nothing else has changed it since. A pane or card click never changes it.
   - Layout through the carried `layout.ts`: `autoPlaceOnCreate` + `reflowChildrenOnCreate` on send; `reflowChildrenOnCreate` once on resize end; `tidyLayout` on Tidy. Heights from Svelte Flow's measured sizes.
-  - Plan 3 also gave it: `focusedId` (keyboard focus, never the target), `focusPath` (on by default, `F`), `structure` (children and the hidden set, rebuilt per `layoutVersion`), `pathIds`, `transcriptOpen`, `shortcutsOpen`; and `continueReply`, `regenerate`, `bindComposer`, `branchFromCard`, `focusCard`, `resizeBy`.
-- **`streams.ts`** — up to 3 concurrent streams, FIFO queue beyond that, 60 s first-token watchdog, `AbortController` per node, events applied through `graph.ts` (`appendText`, `completeNode`, `failNode`, `interruptNode`). Uses the carried `stream.ts` client.
-- **`saver.ts`** — a set of dirty node ids plus a dirty-view flag; flushes every 1.5 s, on `visibilitychange → hidden`, and on `pagehide` (`fetch` with `keepalive`, which browsers cap at 64 KB per request — so the unload flush sends the streaming node and view first and anything beyond the cap is best-effort; the regular 1.5 s flush is what guarantees saving); splits into ≤ 200-node / ≤ 4 MB batches, parents first; on any non-network failure raises `saveError` (banner) and keeps the ids dirty; offline → waits for `online`.
+  - Plan 3 also gave it: `focusedId` (keyboard focus, never the target), `focusPath` (on by default, `F`), `structure` (children and the hidden set, rebuilt per `layoutVersion`), `pathIds`, `transcriptOpen`, `shortcutsOpen`; and `regenerate`, `bindComposer`, `branchFromCard`, `focusCard`, `resizeBy`.
+- **`streams.ts`** — up to 3 concurrent streams, FIFO queue beyond that, 60 s first-token watchdog (the relay sends a `ping` at `message_start`, and the first frame stops the watchdog, so a long thinking phase never reads as "Timed out"), `AbortController` per node, events applied through `graph.ts` (`appendText`, `completeNode`, `failNode`, `interruptNode`). Uses the carried `stream.ts` client.
+- **`saver.ts`** — a set of dirty node ids plus a dirty-view flag; flushes every 1.5 s, on `visibilitychange → hidden`, and on `pagehide` (`fetch` with `keepalive`, which browsers cap at 64 KB per request — so the unload flush sends the streaming node and view first and anything beyond the cap is best-effort; the regular 1.5 s flush is what guarantees saving); splits into ≤ 200-node / ≤ 4 MB batches, parents first; on any non-network failure raises `saveError` (banner) and keeps the ids dirty; offline → waits for `online`. Deletes are queued (`markDeleted`) and sent after the flush's saves; an Undo before they go cancels them (`cancelDeletion`), and the unload save sends any still pending with `keepalive`.
 
 ### Components
 
 - `Canvas.svelte` — `SvelteFlow` (nodes not selectable/connectable, `deleteKey={null}`, `zoomOnDoubleClick={false}`, `onlyRenderVisibleElements`), graph → flow node sync on `layoutVersion`, auto-follow, `MiniMap`, `Controls`, `Background` (cyanotype tokens), one `svelte:window` keydown handler for all shortcuts.
-- `NodeCard.svelte` — header (title, status, Branch, Stop, Retry/Continue, collapse, delete), `Markdown.svelte` body with `nowheel`, thinking disclosure, error state, `NodeResizer`, hidden-count chip for collapsed subtrees, dimmed class when off the focus path.
+- `NodeCard.svelte` — header (title, status, Branch, Stop, Retry/Continue, collapse, delete), `Markdown.svelte` body with `nowheel`, thinking disclosure, error state, `NodeResizeControl`, hidden-count chip for collapsed subtrees, dimmed class when off the focus path.
 - `Composer.svelte` — target badge (the store's `target`, nothing derived), Enter sends, Shift+Enter newline, disabled reason when the target has no answer yet.
-- `TopBar.svelte` — wordmark, model selector, usage chip, Tidy, Fit, account link.
-- `TranscriptView.svelte`, `ShortcutsSheet.svelte`, `UndoToast.svelte`, `Banner.svelte` (offline / rate limit / save failed), `EmptyState.svelte`, `DesktopOnlyNotice.svelte`.
+- `TopBar.svelte` — wordmark, model selector, usage chip, Tidy, Fit, Focus path, Linear view, `?` (the shortcuts sheet), account link.
+- `LinearView.svelte` (the linear view), `ShortcutsSheet.svelte`, `UndoToast.svelte`, `Banner.svelte` (offline / rate limit / save failed), `EmptyState.svelte`, `DesktopOnlyNotice.svelte`.
 - `Markdown.svelte` — port of `markdown.tsx`; same rules; its tests carry over.
 
 ### Carried over (copied, then imports adjusted)

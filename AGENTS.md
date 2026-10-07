@@ -24,14 +24,17 @@ Design: `docs/superpowers/specs/2026-09-25-sveltekit-port-design.md`.
   each with `node:test` tests. Put new logic there, not in components.
 - The composer target changes only through Branch (button or `B`), sending (Continue and
   Regenerate included), New conversation, Enter on a focused card, and deleting the target or an
-  ancestor of it (Undo puts it back). Nothing else assigns `store.target` once the store is built.
+  ancestor of it (Undo puts it back if nothing else has changed it since). Nothing else assigns
+  `store.target` once the store is built.
 - Every canvas shortcut goes through `resolveShortcut` (`src/lib/canvas/shortcuts.ts`) and the one
   `svelte:window` handler in `Canvas.svelte`; only Esc closing the linear view (decided in that
   handler) and the composer's own Enter and Esc (in its textarea) skip `resolveShortcut`. A new
   shortcut gets its row in `SHORTCUT_ROWS` too, so the `?` sheet never lists a key that does
-  nothing, or misses a shortcut that works.
+  nothing, or misses one `resolveShortcut` handles. Then update the row count that
+  `shortcuts.test.ts` and the sheet test in `tests/e2e/focus.spec.ts` pin.
 - The canvas loads its nodes from `GET /api/nodes`, page by page; the page data carries the view,
-  not the nodes. Never put node text back into a `load`: Vercel caps a response at 4.5 MB.
+  not the nodes. Never put node text back into a `load`: Vercel caps a buffered function response
+  at 4.5 MB.
 
 ## Checks before handing work over
 
