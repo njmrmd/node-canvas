@@ -40,7 +40,11 @@
 	$effect(() => {
 		if (!store.limitReached) return;
 		now = Date.now();
-		const tick = setInterval(() => (now = Date.now()), 15_000);
+		const tick = setInterval(() => {
+			now = Date.now();
+			// A sleeping laptop's timers stand still while the clock moves on: this tick catches the reset up.
+			store.checkLimit(now);
+		}, 15_000);
 		return () => clearInterval(tick);
 	});
 </script>

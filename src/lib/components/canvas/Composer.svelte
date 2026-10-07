@@ -128,7 +128,9 @@
 		align-items: flex-start;
 		gap: var(--space-1);
 		max-width: 860px;
-		z-index: var(--z-composer);
+		/* Over the linear view, which fills the stage's right side (at --z-popover) and, on a narrow window, reaches
+		   the notes. The composer follows the stage in the DOM, so this paints over the panel's bottom-left corner. */
+		z-index: var(--z-popover);
 		pointer-events: none;
 	}
 	.note {
