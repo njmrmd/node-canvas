@@ -2,7 +2,7 @@
 
 Open review findings from Plan 2's and Plan 3's reviews (per task, final, and re-reviews). Plan 2's
 were brought up to date after Plan 3 and stay under "Still open"; Plan 3's own are under "Plan 3
-review findings (open)".
+review findings (open)", apart from two saver points folded into Plan 2's Saver lines.
 
 ## Resolved in Plan 3
 
@@ -70,6 +70,9 @@ review findings (open)".
 - Undo puts a branch back at its old positions, so a card created or tidied into the freed slot
   within 8 s gets covered. Reflow the parent's children on Undo when it has others.
 - `focusCard` stops auto-follow even when it focuses the card being followed (Esc right after a send).
+- Tab cannot reach the roving card while it is off screen (`onlyRenderVisibleElements` unmounts it);
+  the arrows still work from anywhere.
+- `reveal()` centres a card taller than the view, so its header sits off screen.
 - Quick +/− presses read the zoom mid-transition. Step from the pending target zoom instead.
 - Shrinking a card taller than the view by keyboard jumps the view once, on the press where it
   starts to fit. Let a resize always keep the moving edge in view.
@@ -106,8 +109,9 @@ review findings (open)".
 - `withRoute` logs a client that disconnects mid-upload (ECONNRESET) as an unhandled error.
 - The paged load has no `(user_id, created_at, id)` index (a later migration).
 - Deploys: a tab still running the previous bundle meets the new server's frames. Plan 2's bundle
-  fails a card on any frame type it does not know, so Plan 3's `ping` needs Vercel Skew Protection
-  or a reload of open tabs at deploy. Plan 3's bundle ignores unknown frame types; a changed frame
+  turns any frame type it does not know into a failed card whose every save the server refuses, so
+  the reply is lost on reload; Plan 3's `ping` needs Vercel Skew Protection or a reload of open tabs
+  at deploy. Plan 3's bundle ignores unknown frame types; a changed frame
   or API shape still needs Skew Protection or a backward-compatible change.
 
 ### Tests worth adding

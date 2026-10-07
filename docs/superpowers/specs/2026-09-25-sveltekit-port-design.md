@@ -247,8 +247,8 @@ A root layout renders `DesktopOnlyNotice` instead of the page below ~900 px widt
 
 ### Components
 
-- `Canvas.svelte` — `SvelteFlow` (nodes not selectable/connectable, `deleteKey={null}`, `zoomOnDoubleClick={false}`, `onlyRenderVisibleElements`), graph → flow node sync on `layoutVersion`, auto-follow, `MiniMap`, `Controls`, `Background` (cyanotype tokens), one `svelte:window` keydown handler for all shortcuts.
-- `NodeCard.svelte` — header (title, status, Branch, Stop, Retry/Continue, collapse, delete), `Markdown.svelte` body with `nowheel`, thinking disclosure, error state, `NodeResizeControl`, hidden-count chip for collapsed subtrees, dimmed class when off the focus path.
+- `Canvas.svelte` — `SvelteFlow` (nodes not selectable/connectable, its own keyboard handling off — `nodesFocusable`/`edgesFocusable={false}`, `disableKeyboardA11y`, `deleteKey={[]}` — `zoomOnDoubleClick={false}`, `onlyRenderVisibleElements`), graph → flow node sync on `layoutVersion`, auto-follow, `MiniMap`, `Controls`, `Background` (cyanotype tokens), one `svelte:window` keydown handler for all shortcuts.
+- `NodeCard.svelte` — header (title, status, Stop, Branch, body and subtree collapse, Delete), a footer with Retry, Continue and Regenerate where they apply, `Markdown.svelte` body with `nowheel`, thinking disclosure, error state, `NodeResizeControl`, hidden-count chip for collapsed subtrees, dimmed class when off the focus path.
 - `Composer.svelte` — target badge (the store's `target`, nothing derived), Enter sends, Shift+Enter newline, disabled reason when the target has no answer yet.
 - `TopBar.svelte` — wordmark, model selector, usage chip, Tidy, Fit, Focus path, Linear view, `?` (the shortcuts sheet), account link.
 - `LinearView.svelte` (the linear view), `ShortcutsSheet.svelte`, `UndoToast.svelte`, `Banner.svelte` (offline / rate limit / save failed), `EmptyState.svelte`, `DesktopOnlyNotice.svelte`.
@@ -286,7 +286,7 @@ diagnostic logging), `canvas-tokens.css`, and their `*.test.ts` files.
 |---|---|
 | Svelte Flow drag skips the threshold-crossing move (~2 px) | Accepted; noted in the spike. Revisit if it is visible. |
 | Svelte 5 is newer; AI tools sometimes emit Svelte 4 syntax | `AGENTS.md` in the new repo pins conventions (runes only, no stores API, `onclick` not `on:click`). |
-| Keyboard navigation and resize interplay with Svelte Flow's own key/pointer handling | `deleteKey={null}`, `nodrag`/`nowheel` classes, one window key handler; covered by browser tests. |
+| Keyboard navigation and resize interplay with Svelte Flow's own key/pointer handling | Svelte Flow's keyboard handling off (`deleteKey={[]}`, `nodesFocusable={false}`, `disableKeyboardA11y`), `nodrag`/`nowheel` classes, one window key handler; covered by browser tests. |
 | A closed tab mid-reply loses up to ~1.5 s of text | Accepted (approach A); `pagehide` flush narrows it. Orphaned `streaming` nodes settle to `interrupted` on load (carried `settleOrphanedStreams`). |
 | Model ids drift | Allowlist refreshed at build time from Anthropic's model list; the test pinning ids to the registry is dropped. |
 
