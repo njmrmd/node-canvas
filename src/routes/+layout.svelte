@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import favicon from '$lib/assets/favicon.svg';
 	import DesktopOnlyNotice from '$lib/components/DesktopOnlyNotice.svelte';
 	import { LANDING_COPY } from '$lib/copy/landing';
 	import '$lib/styles/tokens.css';
@@ -14,7 +13,7 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 	<!-- The link card, as Slack, Messages and X unfurl it. Absolute URLs from this request's origin. -->
 	<meta name="description" content={LANDING_COPY.description} />
 	<meta property="og:type" content="website" />

@@ -44,6 +44,28 @@ test('at desktop width the landing page shows no phone note', async ({ page }) =
 	await expect(page.getByRole('note')).toBeHidden();
 });
 
+test('the tab icon is our own, and the page can load it', async ({ page, request }) => {
+	await page.goto('/');
+	// The server sends href="/favicon.svg"; once hydrated the attribute reads as an absolute URL, so compare the
+	// resolved address (the `href` property), which is the same either way.
+	await expect(page.locator('link[rel="icon"]')).toHaveJSProperty('href', new URL('/favicon.svg', page.url()).href);
+	const response = await request.get('/favicon.svg');
+	expect(response.status()).toBe(200);
+	expect(response.headers()['content-type']).toMatch(/^image\/svg\+xml\b/);
+	// Loaded by the page itself, under its Content-Security-Policy (img-src 'self'): a blocked file or an
+	// SVG that is not well-formed XML fails to decode here, where a status check would pass it.
+	const decoded = await page.evaluate(
+		() =>
+			new Promise<boolean>((resolve) => {
+				const image = new Image();
+				image.onload = () => resolve(true);
+				image.onerror = () => resolve(false);
+				image.src = '/favicon.svg';
+			})
+	);
+	expect(decoded).toBe(true);
+});
+
 test('a shared link unfurls with a title, a description and a 1200 × 630 picture', async ({ page, request }) => {
 	await page.goto('/');
 	const property = (name: string) => page.locator(`meta[property="${name}"]`);
