@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures';
+import { send } from './helpers';
 
 test('offline shows the banner and blocks sending; online clears it', async ({ page, context, signIn }) => {
 	await signIn();
@@ -71,4 +72,37 @@ test('a starter prompt fills the composer', async ({ page, signIn }) => {
 	await page.getByRole('button', { name: 'Name this product three different ways' }).click();
 	await expect(page.getByLabel('Message')).toHaveValue('Name this product three different ways');
 	await expect(page.locator('article[data-node-id]')).toHaveCount(0);
+});
+
+test('a blocked composer explains itself without moving the field', async ({ page, context, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const field = page.getByLabel('Message');
+	await expect(field).toBeVisible();
+	await context.setOffline(true);
+	await expect(field).toHaveAttribute('placeholder', 'Offline');
+	const before = (await field.boundingBox())!;
+	await field.pressSequentially('h');
+	await expect(page.locator('.composer .note')).toHaveText('Offline');
+	const after = (await field.boundingBox())!;
+	expect([after.y, after.height]).toEqual([before.y, before.height]);
+	await context.setOffline(false);
+});
+
+test('the limit banner counts down while the tab stays open', async ({ page, signIn }) => {
+	await page.clock.install();
+	await signIn();
+	await page.route('**/api/chat', (route) =>
+		route.fulfill({
+			status: 429,
+			contentType: 'application/json',
+			headers: { 'RateLimit-Limit': '60', 'RateLimit-Remaining': '0', 'RateLimit-Reset': '1800' },
+			body: JSON.stringify({ error: { code: 'rate_limited', message: 'You have reached the limit of 60 messages this hour.' } })
+		})
+	);
+	await page.goto('/canvas');
+	await send(page, 'one too many', { wait: false });
+	await expect(page.getByText("You've used your 60 messages for this hour. Resets in 30 minutes.")).toBeVisible();
+	await page.clock.fastForward('10:00');
+	await expect(page.getByText("You've used your 60 messages for this hour. Resets in 20 minutes.")).toBeVisible();
 });

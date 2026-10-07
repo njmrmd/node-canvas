@@ -105,6 +105,8 @@ export class CanvasStore {
 	queueVersion = $state(0);
 	model = $state('');
 	rateLimit = $state<RateLimitSnapshot | null>(null);
+	/** When the hourly window resets, in epoch milliseconds — the limit banner counts down to it. */
+	rateLimitResetAt = $state<number | null>(null);
 	saveError = $state<string | null>(null);
 	online = $state(true);
 	undo = $state.raw<UndoState | null>(null);
@@ -463,6 +465,7 @@ export class CanvasStore {
 
 	private noteRateLimit(snapshot: RateLimitSnapshot): void {
 		this.rateLimit = snapshot;
+		this.rateLimitResetAt = Date.now() + snapshot.resetSeconds * 1000;
 		if (this.rateLimitReset !== null) clearTimeout(this.rateLimitReset);
 		this.rateLimitReset = null;
 		if (snapshot.remaining === 0) {

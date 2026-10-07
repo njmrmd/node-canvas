@@ -7,3 +7,8 @@ export function formatDuration(seconds: number): string {
 	}
 	return `${Math.ceil(seconds / 3600)} hours`;
 }
+
+/** Whole seconds from `now` until `resetAt` (both epoch milliseconds), rounded up, never negative. */
+export function secondsUntil(resetAt: number, now: number): number {
+	return Math.max(0, Math.ceil((resetAt - now) / 1000));
+}

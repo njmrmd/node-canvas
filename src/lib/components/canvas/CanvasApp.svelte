@@ -4,7 +4,7 @@
 	import type { NodeWire, ViewWire } from '$lib/canvas/node-wire';
 	import { findModel, type ModelSpec } from '$lib/shared/models';
 	import { copy } from '$lib/canvas/copy';
-	import { formatDuration } from '$lib/canvas/format';
+	import { formatDuration, secondsUntil } from '$lib/canvas/format';
 	import '$lib/styles/canvas-tokens.css';
 	import Banner from './Banner.svelte';
 	import Canvas from './Canvas.svelte';
@@ -34,13 +34,22 @@
 		store.start();
 		return () => store.dispose();
 	});
+
+	// "Resets in …" counts down while the limit banner shows: one tick every 15 s, and none otherwise.
+	let now = $state(Date.now());
+	$effect(() => {
+		if (!store.limitReached) return;
+		now = Date.now();
+		const tick = setInterval(() => (now = Date.now()), 15_000);
+		return () => clearInterval(tick);
+	});
 </script>
 
 <div class="app canvas-surface">
 	<TopBar models={data.models} email={data.email} />
 	{#if !store.online}<Banner tone="info">{copy('offline.banner')}</Banner>{/if}
 	{#if store.limitReached && store.rateLimit}
-		<Banner tone="warning">{copy('limit.banner', { total: store.rateLimit.limit, time: formatDuration(store.rateLimit.resetSeconds) })}</Banner>
+		<Banner tone="warning">{copy('limit.banner', { total: store.rateLimit.limit, time: formatDuration(secondsUntil(store.rateLimitResetAt ?? now, now)) })}</Banner>
 	{/if}
 	{#if store.saveError}<Banner tone="danger">{store.saveError}</Banner>{/if}
 	<div class="stage">
