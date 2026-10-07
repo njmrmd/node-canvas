@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import { wire } from '../../../tests/support/wire';
 import type { NodeWire } from '../canvas/node-wire';
 import { ApiError } from './api-error';
-import { isUuid, parseSaveBody } from './nodes';
+import { decodeCursor, encodeCursor, isUuid, parseSaveBody, takePage } from './nodes';
 
 const rejects = (body: unknown) =>
 	assert.throws(() => parseSaveBody(body as Record<string, unknown>), (e: unknown) => e instanceof ApiError && e.code === 'invalid_request');
@@ -62,5 +62,22 @@ describe('parseSaveBody', () => {
 	it('recognises UUIDs', () => {
 		assert.equal(isUuid(randomUUID()), true);
 		assert.equal(isUuid('not-a-uuid'), false);
+	});
+});
+
+describe('canvas load pages', () => {
+	it('round-trips a cursor and refuses a malformed one', () => {
+		const cursor = { createdAt: '2026-10-06T12:34:56.123456Z', id: randomUUID() };
+		assert.deepEqual(decodeCursor(encodeCursor(cursor)), cursor);
+		for (const bad of ['', 'nope', `2026-10-06T12:34:56Z_${cursor.id}`, `${cursor.createdAt}_not-a-uuid`, `${cursor.createdAt}${cursor.id}`]) {
+			assert.equal(decodeCursor(bad), null, bad);
+		}
+	});
+
+	it('takes rows while they fit the budget, and always at least one', () => {
+		const rows = [{ bytes: 100 }, { bytes: 100 }, { bytes: 5000 }, { bytes: 1 }];
+		assert.equal(takePage(rows, 1500).length, 2); // 2 × (100 + 512 overhead) fit; the 5000 does not
+		assert.equal(takePage(rows.slice(2), 1500).length, 1); // a row bigger than the budget goes alone
+		assert.equal(takePage([], 1500).length, 0);
 	});
 });

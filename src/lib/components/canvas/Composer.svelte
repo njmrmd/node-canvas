@@ -9,6 +9,8 @@
 	const blocked = $derived(store.sendBlockedReason);
 	const tooLong = $derived(text.trim().length > MAX_MESSAGE_CHARS);
 	const placeholder = $derived(blocked ?? (store.target ? copy('composer.placeholder.reply') : copy('composer.placeholder')));
+	// Any draft, even only spaces, hides the placeholder, so while there is one the reason shows beneath it.
+	const showBlocked = $derived(!!blocked && text !== '');
 
 	function submit() {
 		if (store.send(text)) text = '';
@@ -19,6 +21,11 @@
 		text = value;
 		field?.focus();
 	}
+
+	// Enter or B on a card hands the cursor to the composer.
+	$effect(() => {
+		if (store.composerRequest > 0) field?.focus();
+	});
 </script>
 
 <form
@@ -42,16 +49,24 @@
 			bind:value={text}
 			rows="2"
 			{placeholder}
+			aria-describedby={showBlocked ? 'composer-blocked' : undefined}
 			onkeydown={(e) => {
 				if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
 					e.preventDefault();
-					submit();
+					// A held Enter repeats; after Enter on a card the repeats land here, and must not send the draft.
+					if (!e.repeat) submit();
+				} else if (e.key === 'Escape') {
+					// Back to the card the composer replies to, so the keyboard carries on from there.
+					e.preventDefault();
+					field?.blur();
+					if (store.target) store.focusCard(store.target);
 				}
 			}}
 		></textarea>
 		<button type="submit" disabled={!text.trim() || !!blocked || tooLong}>Send</button>
 	</div>
 	{#if tooLong}<p class="note" role="status">{copy('composer.tooLong')}</p>{/if}
+	{#if showBlocked}<p class="note" id="composer-blocked" role="status">{blocked}</p>{/if}
 </form>
 
 <style>

@@ -134,10 +134,33 @@ const PORT_RULED = {
   /* The draft is over `MAX_MESSAGE_CHARS`; nothing is sent, the draft stays. */
   "composer.tooLong":
     "This message is too long to send. Shorten it to under 100,000 characters.",
-  /* The target failed or was stopped before any reply text: it never will
-   * finish, so `branch.disabled` would promise something that cannot happen. */
+  /* The target failed, was stopped, or finished without any reply text: it will
+   * not get any, so `branch.disabled` would promise something that cannot happen. */
   "branch.failed":
     "This reply didn't finish. Branch from another card, or start a new conversation.",
+  /* Plan 3: the card's delete button (the old app's hard-coded label). */
+  "node.action.delete": "Delete",
+  /* Plan 3: card size controls — the old app's hard-coded labels (node-card.tsx at c215512). */
+  "node.action.collapseBody": "Collapse to one line",
+  "node.action.expandBody": "Show full reply",
+  "node.action.collapse": "Collapse",
+  "node.action.expand": "Expand ({n})",
+  "node.action.resize": "Resize card",
+  /* Plan 3: the chip on a collapsed card — the spec asks for a hidden-count chip and gives no wording. */
+  "node.hiddenCount": "{n} hidden",
+  /* Plan 3: the linear view's copy confirmation (the old app's hard-coded "Copied"), and its empty state
+   * (the old app never showed an empty panel; this port opens it without a target too). */
+  "linearview.copied": "Copied",
+  "linearview.empty":
+    "Nothing here yet. Send a message, or branch from a card, and its conversation shows here as text.",
+  /* Plan 3: Copy all's failure (a refused clipboard) — the old app had no failure state. */
+  "linearview.copyFailed": "Couldn't copy",
+  /* Plan 3: the visible 100% control spec §4 lists beside zoom in/out and fit. */
+  "zoom.reset": "Zoom to 100%",
+  /* Plan 3: spec §2 / §8's notice below ~900 px. The old app had none; this is new wording. */
+  "desktop.title": "node-canvas is built for desktop",
+  "desktop.body":
+    "Open it in a browser window at least 900 pixels wide. Your canvas is saved and waiting there.",
 } as const;
 
 export const COPY = {

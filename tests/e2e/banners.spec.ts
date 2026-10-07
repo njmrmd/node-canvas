@@ -9,6 +9,17 @@ test('offline shows the banner and blocks sending; online clears it', async ({ p
 	await expect(page.getByText("You're offline. Your canvas is here, but new messages will fail.")).toBeVisible();
 	await page.getByLabel('Message').fill('hello');
 	await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
+	await expect(page.locator('.composer .note')).toHaveText('Offline');
+	await expect(page.getByLabel('Message')).toHaveAttribute('aria-describedby', 'composer-blocked');
+	await expect(page.locator('#composer-blocked')).toHaveText('Offline');
+	// A draft of only spaces hides the placeholder too, so it gets the reason as well.
+	await page.getByLabel('Message').fill('   ');
+	await expect(page.locator('.composer .note')).toHaveText('Offline');
+	// With nothing typed the placeholder says it, and there is no note to describe the field.
+	await page.getByLabel('Message').fill('');
+	await expect(page.locator('.composer .note')).toHaveCount(0);
+	await expect(page.getByLabel('Message')).not.toHaveAttribute('aria-describedby');
+	await page.getByLabel('Message').fill('hello');
 	await context.setOffline(false);
 	await expect(page.getByText("You're offline.")).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
@@ -17,8 +28,12 @@ test('offline shows the banner and blocks sending; online clears it', async ({ p
 test('a failing save shows the banner, and a later success clears it', async ({ page, signIn }) => {
 	await signIn();
 	await page.goto('/canvas');
+	// The canvas loads its nodes with a GET to this same URL: let that finish, and fail only the saves.
+	await expect(page.getByLabel('Message')).toBeVisible();
 	await page.route('**/api/nodes', (route) =>
-		route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":{"code":"internal_error","message":"x"}}' })
+		route.request().method() === 'PUT'
+			? route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":{"code":"internal_error","message":"x"}}' })
+			: route.continue()
 	);
 	await page.getByLabel('Message').fill('save me');
 	await page.getByLabel('Message').press('Enter');
@@ -45,6 +60,9 @@ test('the hourly limit blocks sending and says when it resets', async ({ page, s
 	await expect(card).toContainText('You have reached the limit of 60');
 	await expect(page.getByText(/You've used your 60 messages for this hour\. Resets in/)).toBeVisible();
 	await expect(page.getByLabel('Message')).toHaveAttribute('placeholder', 'Hourly limit reached');
+	await page.getByLabel('Message').fill('again');
+	await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
+	await expect(page.locator('.composer .note')).toHaveText('Hourly limit reached');
 });
 
 test('a starter prompt fills the composer', async ({ page, signIn }) => {
@@ -52,4 +70,5 @@ test('a starter prompt fills the composer', async ({ page, signIn }) => {
 	await page.goto('/canvas');
 	await page.getByRole('button', { name: 'Name this product three different ways' }).click();
 	await expect(page.getByLabel('Message')).toHaveValue('Name this product three different ways');
+	await expect(page.locator('article[data-node-id]')).toHaveCount(0);
 });

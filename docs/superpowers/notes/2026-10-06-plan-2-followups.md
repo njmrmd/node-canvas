@@ -1,78 +1,132 @@
-# Plan 2 follow-ups
+# Plan 2 and Plan 3 follow-ups
 
-These are the findings that Plan 2's reviews (per-task, final, and re-reviews) left open. Plan 3 should start from this list.
-Everything not listed here was fixed on the `plan-2-canvas-core` branch.
+Open review findings from Plan 2's and Plan 3's reviews (per task, final, and re-reviews). Plan 2's
+were brought up to date after Plan 3 and stay under "Still open"; Plan 3's own are under "Plan 3
+review findings (open)", apart from two saver points folded into Plan 2's Saver lines.
 
-## Cutover blockers (fix before the old app is switched off)
+## Resolved in Plan 3
 
-- **The canvas load has no size ceiling.**
-  - Where: `loadCanvas` (`src/lib/server/nodes.ts`) puts every node's full prompt, response and thinking into `__data.json`.
-  - Why it matters: Vercel caps a buffered function response at 4.5 MB. Past that, `/canvas` stops loading for a canvas that saved fine.
-  - Fix: load metadata and previews and fetch bodies lazily, or stream the load.
-  - Test: seed about 6 MB and open `/canvas` on a preview deployment.
-- **Markdown is re-parsed in full on every streamed chunk.**
-  - Where: `Markdown.svelte` runs `$derived(parseMarkdown(text))`.
-  - Measured: 2.8 ms per parse at 300 KB. A 200 KB reply streamed in small deltas costs about 10 s of CPU.
-  - Fix: parse incrementally, with stable blocks plus a re-parsed tail, or parse at most once per frame while streaming.
-- **The first-token watchdog misreads a long silent thinking phase.**
-  - Where: the relay drops Anthropic `ping` events.
-  - Effect: more than 60 s of adaptive thinking with no summary delta reads as "Timed out" while the server is still streaming.
-  - Fix: relay a heartbeat frame and count it as activity in `streams.ts`.
+- **Cutover blockers.** The canvas load is paged (`GET /api/nodes`, at most 3 MiB a page);
+  markdown parses only a streaming reply's unfinished tail; the relay sends a ping when the model
+  starts, so a long thinking phase no longer reads as "Timed out".
+- **Saver.** Refused nodes take turns under the singles cap; the view waits for its target to be
+  saved; only one unload save runs at a time; deletes go through the saver, after its saves.
+- **Canvas.** A visible 100% zoom control; a reply that ended without text no longer promises to
+  finish; a blocked composer shows its reason next to the draft; numbered lists keep their
+  numbers, a lead-in line splits from its list, nested markers are stripped, long tokens wrap;
+  keyboard navigation walks the graph, so Svelte Flow's DOM order does not matter.
+- **Tests.** The relay's mid-stream error frame and its 2 MB cap; Send disabled at the limit; a
+  starter prompt creates no card; a click on a card leaves the composer target alone; the canvas
+  load refuses a signed-out reader; a pre-stream `ApiCallError` ends as `data-status="error"`
+  (the hourly-limit test in `banners.spec.ts`, and `stream.test.ts`).
 
-## Plan 3 — saver and save path
+## Still open
 
-- **The 10-singles cap always picks the same suspects.**
-  - Where: `saver.ts`. Ten or more permanently refused nodes can starve one that would now save.
-  - Why now: Plan 3's delete and undo can orphan children, which creates exactly that.
-  - Fix: rotate suspects, least recently tried first.
-- **Suspects are sent after the view.**
-  - Effect: after a transient failure on a new target node, the view saves first and the stored target becomes null.
-  - Fix: send suspects in depth order ahead of dependants, and the view last.
-- **`dispose()` saves before the stopped streams settle.** An in-app exit mid-stream saves `streaming`, which the next load repairs.
-- **Two keepalives on tab close** (`visibilitychange` then `pagehide`) share Chrome's 64 KB keepalive budget. Share one budget.
-- **Last-write-wins has no guard.**
-  - An `updated_at` guard was tried and reverted, because it trusts browser clocks.
-  - If the keepalive-vs-in-flight race matters, use a server-side revision counter instead.
-- **`flush()` returns the in-flight promise** when a caller wants everything saved now.
-- **Rejected ids from `PUT /api/nodes` are dropped silently.**
+### Before cutover (Plan 4)
 
-## Plan 3 — canvas behaviour and copy
+- Copy: the offline banner says "new messages will fail" but sending is blocked; the limit
+  banner's reset time does not count down; `node.action.openSettings` still says "Open settings";
+  `unauthenticated` and `unsupported_model` show the generic error line, with no sign-in hint;
+  stale comments in `chat-limits.ts` and `copy.ts` (00:00 UTC).
+- Styles: some literals (sizes, shadow, weight) should use tokens.
 
-- **A `complete` reply with no text** (thinking used all of `max_tokens`) still says "Available when the reply finishes." Change the condition to `status !== 'streaming'`.
-- **The composer's blocked reason shows only as the placeholder**, so it is hidden once the user has typed.
-- **Spec §4 lists a 100% zoom control.** Add a visible one alongside the "1" shortcut.
-- **Svelte Flow reorders card DOM** under `onlyRenderVisibleElements`. Keyboard navigation must not rely on DOM order.
-- **Copy:**
-  - the offline banner says "new messages will fail", but sending is actually blocked;
-  - the limit banner's reset time doesn't count down;
-  - `node.action.openSettings` still says "Open settings";
-  - `unauthenticated` and `unsupported_model` show the generic error line, with no sign-in hint.
-- **Markdown polish:**
-  - loose numbered lists all show "1.";
-  - a lead-in line followed by a list collapses into one paragraph;
-  - nested bullets keep their raw markers;
-  - there is no `overflow-wrap` on long tokens.
-- **Styles:** some literals (sizes, shadow, weight) should use tokens.
+### Saver
 
-## Tests worth adding
+- `dispose()` saves before the stopped streams settle (the next load repairs it).
+- Last-write-wins has no guard, and an unload DELETE can race an in-flight PUT of the same node. A
+  browser-clock guard was tried and reverted; use a server-side revision counter if the
+  keepalive-vs-in-flight race ever matters.
+- `flush()` returns the in-flight promise when a caller wants everything saved now, so `dispose()`
+  also misses a delete marked after the running flush took its snapshot.
+- Rejected ids from `PUT /api/nodes` are dropped silently.
 
-- `/api/chat`:
-  - abort propagation;
-  - a mid-stream `error` frame;
-  - the 2 MB cap.
-- A pre-stream `ApiCallError` ends as `data-status="error"`.
-- Clicking a card body (not Branch) leaves the composer target unchanged.
-- Send stays disabled at the hourly limit.
-- A starter prompt creates no card.
-- Nodes:
-  - a mixed owned-plus-foreign batch;
-  - a foreign parent at the route level;
-  - an unauthenticated `__data.json`.
-- `signIn` specs need the local rig. Note in `e2e/README.md` that they can't target `E2E_BASE_URL`.
+### Tests worth adding
 
-## Small hardening that can wait
+- `/api/chat` abort propagation.
+- Nodes: a mixed owned-plus-foreign batch; a foreign parent at the route level.
 
-- **`parseChatBody`:** require the last message to be from the user, and reject consecutive same-role messages.
-- **`parseSaveBody`:** reject `parentId === id` and duplicate ids. Duplicates give a 500 today, but the saver never sends them.
-- **`nodes.ts` error mapping:** any 23503 is reported as "parent not on this canvas".
-- **Stale comments:** `chat-limits.ts`, `graph.ts` (React), and `copy.ts` (00:00 UTC).
+### Small hardening
+
+- `parseChatBody`: require the last message to be from the user; reject consecutive same-role messages.
+- `parseSaveBody`: reject `parentId === id` and duplicate ids (duplicates give a 500 today; the saver never sends them).
+- `nodes.ts`: any 23503 is reported as "parent not on this canvas".
+
+## Plan 3 review findings (open)
+
+### Before cutover (Plan 4), design and copy
+
+- Dimmed cards at opacity 0.45 put ink text at 3.25:1 and soft text at 2.61:1. 0.6 brings ink to
+  4.66:1 but soft text only to 3.57:1; or dim only the chrome.
+- The composer's blocked note pushes the field up 24 px on the first keystroke.
+- The desktop notice says "Your canvas is saved and waiting there" to people with no canvas.
+- "This reply didn't finish" now also covers a reply that finished empty.
+- The loader shows "Taking longer than expected." with no Retry on a stalled request. A failed load
+  says the same, with Retry.
+- The resize corner on a card under 120 px tall first shrinks the card. This is the 1.7.0 clamp; the
+  saved size ends valid.
+
+### Canvas
+
+- Undo puts a branch back at its old positions, so a card created or tidied into the freed slot
+  within 8 s gets covered. Reflow the parent's children on Undo when it has others.
+- `focusCard` stops auto-follow even when it focuses the card being followed (Esc right after a send).
+- Tab cannot reach the roving card while it is off screen (`onlyRenderVisibleElements` unmounts it);
+  the arrows still work from anywhere.
+- `reveal()` centres a card taller than the view, so its header sits off screen.
+- Quick +/− presses read the zoom mid-transition. Step from the pending target zoom instead.
+- Shrinking a card taller than the view by keyboard jumps the view once, on the press where it
+  starts to fit. Let a resize always keep the moving edge in view.
+- Use `interpolate: 'linear'` for the framing pan, so an interrupted pan never leaves the zoom dipped.
+- A reopen shows a one-frame 40 px shift, because the first pass counts the collapsed parent's chip.
+- Hidden cards still count as occupied space in `autoPlaceOnCreate`, in `reflowChildrenOnCreate`'s
+  outside list, and in `layoutSubtree`.
+- The linear view overlays the canvas's right 480 px, and Fit ignores it.
+- The linear view can return focus to an element that is no longer in the page.
+- The open thinking disclosure re-lays out all of the thinking text per token. This is Plan 2 code;
+  the linear view's paragraph chunks (`paragraphs()`) are the fix's shape.
+- `NodeCard` runs `canRetry`, which runs `childIds` (O(N)), per token on every mounted failed card.
+  `store.childCount(id) === 0` would do.
+- A crafted parent cycle (self-parent or a two-node cycle, through the user's own PUT) hangs
+  `descendantIds` on delete.
+- Nested lists skew ordered numbering in the markdown parser.
+- Cmd+Opt+←/→ is reserved by Chrome and Firefox on macOS (tab switching), so check width resize on
+  real hardware. Ctrl+Opt works.
+
+### Accessibility
+
+- The resize control's `aria-label` sits on a role-less div.
+- The "n hidden" chip unmounts on activation, so focus goes to body.
+- The subtree toggle pairs `aria-expanded` with a flipping label.
+- The body toggle has no pressed state.
+- `/canvas` has no `main` landmark at 900 px and up.
+- `B` on a card that cannot be branched is refused silently.
+- The toast's Undo drops focus when the delete had not moved it.
+
+### Saver and server
+
+- An impossible cursor date (month 13) returns 500 instead of 400. Map SQLSTATE class 22 to
+  `invalid_request`.
+- `withRoute` logs a client that disconnects mid-upload (ECONNRESET) as an unhandled error.
+- The paged load has no `(user_id, created_at, id)` index (a later migration).
+- Deploys: a tab still running the previous bundle meets the new server's frames. Plan 2's bundle
+  turns any frame type it does not know into a failed card whose every save the server refuses, so
+  the reply is lost on reload; Plan 3's `ping` needs Vercel Skew Protection or a reload of open tabs
+  at deploy. Plan 3's bundle ignores unknown frame types; a changed frame
+  or API shape still needs Skew Protection or a backward-compatible change.
+
+### Tests worth adding
+
+- `__data.json` carries no node text.
+- The loader's slow, failed and Retry states.
+- A db test for the `(created_at, id)` tie-break.
+- `rectInView` and `focusOn` single-edge pins.
+- A queued card in a removed branch.
+- Retry leaves the target alone.
+- Retry, Continue and Regenerate disabled offline or at the limit.
+- The two halves of Task 8's height cache in `Canvas.svelte`.
+- Review Focus #1: a deleted streaming branch stays gone after a reload.
+- Review Focus #4: a delete just before the page closes.
+- The perf spec's observer watches only streaming cards and ignores attributes, so it cannot catch
+  a breach of §1.4's "only the streaming cards touch the DOM".
+- `savedNodesText`'s 3 × 2 s budget exceeds `expect.poll`'s 5 s.
+- The e2e teardown stops Postgres before the preview exits (the 57P01 noise).

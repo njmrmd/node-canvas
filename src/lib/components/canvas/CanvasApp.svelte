@@ -9,10 +9,12 @@
 	import Banner from './Banner.svelte';
 	import Canvas from './Canvas.svelte';
 	import Composer from './Composer.svelte';
+	import LinearView from './LinearView.svelte';
+	import ShortcutsSheet from './ShortcutsSheet.svelte';
 	import TopBar from './TopBar.svelte';
 
-	type Data = { nodes: NodeWire[]; view: ViewWire | null; email: string; models: readonly ModelSpec[]; defaultModelId: string };
-	let { data }: { data: Data } = $props();
+	type Data = { view: ViewWire | null; email: string; models: readonly ModelSpec[]; defaultModelId: string };
+	let { data, nodes }: { data: Data; nodes: NodeWire[] } = $props();
 
 	function initialModel(): string {
 		try {
@@ -25,7 +27,7 @@
 	}
 
 	// Seeded once from the load; the store owns the canvas from then on.
-	const store = untrack(() => new CanvasStore({ nodes: data.nodes, view: data.view, model: initialModel() }));
+	const store = untrack(() => new CanvasStore({ nodes, view: data.view, model: initialModel() }));
 	provideCanvas(store);
 	let composer = $state<ReturnType<typeof Composer>>();
 	onMount(() => {
@@ -41,8 +43,12 @@
 		<Banner tone="warning">{copy('limit.banner', { total: store.rateLimit.limit, time: formatDuration(store.rateLimit.resetSeconds) })}</Banner>
 	{/if}
 	{#if store.saveError}<Banner tone="danger">{store.saveError}</Banner>{/if}
-	<Canvas onpick={(prompt) => composer?.draft(prompt)} />
+	<div class="stage">
+		<Canvas onpick={(prompt) => composer?.draft(prompt)} />
+		{#if store.transcriptOpen}<LinearView />{/if}
+	</div>
 	<Composer bind:this={composer} />
+	{#if store.shortcutsOpen}<ShortcutsSheet />{/if}
 </div>
 
 <style>
@@ -51,5 +57,13 @@
 		flex-direction: column;
 		height: 100vh;
 		background: var(--cy-paper);
+	}
+	/* The canvas and the linear view share this box, so the panel never covers the top bar or the composer. */
+	.stage {
+		position: relative;
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
 	}
 </style>

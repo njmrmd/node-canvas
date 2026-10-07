@@ -24,6 +24,11 @@
 	<div class="spacer"></div>
 	<button type="button" onclick={() => store.tidy()}>Tidy</button>
 	<button type="button" onclick={() => flow.fitView({ duration: 250 })}>Fit</button>
+	<button type="button" aria-pressed={store.focusPath} onclick={() => store.toggleFocusPath()}>{copy('focuspath.toggle')}</button>
+	<button type="button" aria-pressed={store.transcriptOpen} onclick={() => (store.transcriptOpen = !store.transcriptOpen)}
+		>{copy('linearview.heading')}</button
+	>
+	<button type="button" aria-label={copy('shortcuts.title')} title={copy('shortcuts.title')} onclick={() => (store.shortcutsOpen = true)}>?</button>
 	<a class="account" href={resolve('/keys')} title={email}>Account</a>
 </header>
 
@@ -60,6 +65,10 @@
 	}
 	button {
 		cursor: pointer;
+	}
+	button[aria-pressed='true'] {
+		border-color: var(--cy-gold);
+		color: var(--cy-gold);
 	}
 	.chip {
 		font: var(--text-xs);

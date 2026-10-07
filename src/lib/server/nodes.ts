@@ -16,6 +16,46 @@ export function isUuid(value: unknown): value is string {
 	return typeof value === 'string' && UUID.test(value);
 }
 
+/**
+ * The canvas load's page budget, counted on stored text (`octet_length`) plus `NODE_OVERHEAD_BYTES` a
+ * node. 3 MiB leaves ordinary JSON escaping well under Vercel's 4.5 MB cap on a buffered response,
+ * while text crafted to escape heavily (`\u0001` takes six bytes in JSON) could exceed it.
+ */
+export const PAGE_BYTES = 3 * 1024 * 1024;
+/** How many rows one page looks at when choosing what fits. */
+const PAGE_SCAN = 500;
+/** One node's JSON besides its three texts — ids, numbers, field names — rounded up. */
+const NODE_OVERHEAD_BYTES = 512;
+
+/** Where the next page starts: the last node sent, in the load's (created_at, id) order. */
+export type Cursor = { createdAt: string; id: string };
+const CURSOR_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+
+export function encodeCursor(cursor: Cursor): string {
+	return `${cursor.createdAt}_${cursor.id}`;
+}
+
+export function decodeCursor(value: string): Cursor | null {
+	const cut = value.indexOf('_');
+	if (cut === -1) return null;
+	const createdAt = value.slice(0, cut);
+	const id = value.slice(cut + 1);
+	return CURSOR_TIME.test(createdAt) && isUuid(id) ? { createdAt, id } : null;
+}
+
+/** The rows that go in one page: as many as fit in `budget` bytes, and always at least one. */
+export function takePage<T extends { bytes: number }>(rows: readonly T[], budget: number): T[] {
+	const page: T[] = [];
+	let total = 0;
+	for (const row of rows) {
+		const size = row.bytes + NODE_OVERHEAD_BYTES;
+		if (page.length > 0 && total + size > budget) break;
+		page.push(row);
+		total += size;
+	}
+	return page;
+}
+
 function bad(message: string): never {
 	throw new ApiError('invalid_request', message);
 }
@@ -187,40 +227,81 @@ export async function deleteNode(userId: string, id: string): Promise<void> {
 	await query('delete from nodes where id = $1 and user_id = $2', [id, userId]);
 }
 
-export async function loadCanvas(userId: string): Promise<{ nodes: NodeWire[]; view: ViewWire | null }> {
-	const rows = await query<NodeRow>(
-		`select id, parent_id, prompt, response, thinking, status, error, usage, model, x, y, position_mode, width, height,
-		        collapsed, body_collapsed,
-		        (extract(epoch from created_at) * 1000)::bigint::text as created_ms,
-		        (extract(epoch from updated_at) * 1000)::bigint::text as updated_ms
-		   from nodes where user_id = $1 order by created_at, id`,
-		[userId]
+const NODE_COLUMNS = `id, parent_id, prompt, response, thinking, status, error, usage, model, x, y, position_mode, width, height,
+	collapsed, body_collapsed,
+	(extract(epoch from created_at) * 1000)::bigint::text as created_ms,
+	(extract(epoch from updated_at) * 1000)::bigint::text as updated_ms`;
+
+function fromRow(r: NodeRow): NodeWire {
+	return {
+		id: r.id,
+		parentId: r.parent_id,
+		prompt: r.prompt,
+		response: r.response,
+		thinking: r.thinking,
+		status: r.status,
+		error: r.error,
+		usage: r.usage,
+		model: r.model,
+		x: r.x,
+		y: r.y,
+		positionMode: r.position_mode,
+		width: r.width,
+		height: r.height,
+		collapsed: r.collapsed,
+		bodyCollapsed: r.body_collapsed,
+		createdAt: Number(r.created_ms),
+		updatedAt: Number(r.updated_ms)
+	};
+}
+
+/**
+ * One page of the canvas load, in creation order. Which nodes fit is decided from the texts' byte
+ * lengths before any text is read, so a page carries at most `budget` bytes of text — or one node
+ * bigger than that, alone.
+ */
+export async function loadNodesPage(
+	userId: string,
+	after: Cursor | null,
+	budget = PAGE_BYTES
+): Promise<{ nodes: NodeWire[]; next: Cursor | null }> {
+	const scanned = await query<{ id: string; created_iso: string; bytes: number }>(
+		`select id,
+		        to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as created_iso,
+		        (octet_length(prompt) + octet_length(response) + octet_length(thinking))::int as bytes
+		   from nodes
+		  where user_id = $1 and ($2::timestamptz is null or (created_at, id) > ($2::timestamptz, $3::uuid))
+		  order by created_at, id
+		  limit ${PAGE_SCAN}`,
+		[userId, after?.createdAt ?? null, after?.id ?? null]
 	);
+	const page = takePage(scanned, budget);
+	if (page.length === 0) return { nodes: [], next: null };
+	const rows = await query<NodeRow>(
+		`select ${NODE_COLUMNS} from nodes where user_id = $1 and id = any($2::uuid[]) order by created_at, id`,
+		[userId, page.map((r) => r.id)]
+	);
+	const last = page[page.length - 1];
+	const more = page.length < scanned.length || scanned.length === PAGE_SCAN;
+	return { nodes: rows.map(fromRow), next: more ? { createdAt: last.created_iso, id: last.id } : null };
+}
+
+export async function loadView(userId: string): Promise<ViewWire | null> {
 	const view = await queryOne<{ viewport: ViewWire['viewport']; target_node_id: string | null }>(
 		'select viewport, target_node_id from canvas_view where user_id = $1',
 		[userId]
 	);
-	return {
-		nodes: rows.map((r) => ({
-			id: r.id,
-			parentId: r.parent_id,
-			prompt: r.prompt,
-			response: r.response,
-			thinking: r.thinking,
-			status: r.status,
-			error: r.error,
-			usage: r.usage,
-			model: r.model,
-			x: r.x,
-			y: r.y,
-			positionMode: r.position_mode,
-			width: r.width,
-			height: r.height,
-			collapsed: r.collapsed,
-			bodyCollapsed: r.body_collapsed,
-			createdAt: Number(r.created_ms),
-			updatedAt: Number(r.updated_ms)
-		})),
-		view: view ? { viewport: view.viewport, targetNodeId: view.target_node_id } : null
-	};
+	return view ? { viewport: view.viewport, targetNodeId: view.target_node_id } : null;
+}
+
+/** Every node and the view, page by page — for the database tests and anything else server-side. */
+export async function loadCanvas(userId: string): Promise<{ nodes: NodeWire[]; view: ViewWire | null }> {
+	const nodes: NodeWire[] = [];
+	let after: Cursor | null = null;
+	do {
+		const page: { nodes: NodeWire[]; next: Cursor | null } = await loadNodesPage(userId, after);
+		nodes.push(...page.nodes);
+		after = page.next;
+	} while (after !== null);
+	return { nodes, view: await loadView(userId) };
 }

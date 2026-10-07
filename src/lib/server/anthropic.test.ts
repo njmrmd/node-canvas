@@ -147,4 +147,18 @@ describe('streamChat', () => {
 			false
 		);
 	});
+
+	it('signals that the model has started before any text arrives', async () => {
+		const events = await collect('claude-opus-5-5', 'hello');
+		assert.deepEqual(events[0], { type: 'ping' });
+		assert.equal(events.filter((e) => e.type === 'ping').length, 1);
+	});
+
+	it('turns an error part-way through the reply into an error event after the text so far', async () => {
+		const events = await collect('claude-opus-5-5', '[midfail] break');
+		assert.ok(events.some((e) => e.type === 'text'));
+		const last = events.at(-1);
+		assert.equal(last?.type, 'error');
+		assert.equal(last?.type === 'error' && last.code, 'provider_unavailable');
+	});
 });

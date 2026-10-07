@@ -1,22 +1,10 @@
 import { anthropicRequests, expect, resetAnthropic, test } from './fixtures';
+import { cards, savedNodesText, send } from './helpers';
 import type { Page } from '@playwright/test';
-
-const cards = (page: Page) => page.locator('article[data-node-id]');
-
-async function send(page: Page, prompt: string, { wait = true } = {}) {
-	const before = await cards(page).count();
-	await page.getByLabel('Message').fill(prompt);
-	await page.getByLabel('Message').press('Enter');
-	await expect(cards(page)).toHaveCount(before + 1);
-	const card = cards(page).last();
-	const id = (await card.getAttribute('data-node-id'))!;
-	if (wait) await expect(card).toHaveAttribute('data-status', 'complete', { timeout: 30_000 });
-	return id;
-}
 
 /** Waits until the canvas load returns `needle` — i.e. the saver has flushed. */
 async function waitSaved(page: Page, needle: string) {
-	await expect.poll(async () => (await page.request.get('/canvas/__data.json')).text(), { timeout: 15_000 }).toContain(needle);
+	await expect.poll(() => savedNodesText(page), { timeout: 15_000 }).toContain(needle);
 }
 
 test('without a key, the canvas sends you to connect one', async ({ page, signIn }) => {
@@ -38,6 +26,26 @@ test('send, stream, and find it again after a reload', async ({ page, signIn }) 
 	await page.reload();
 	await expect(page.locator(`article[data-node-id="${id}"]`)).toContainText('Echo: first question.');
 	await expect(page.locator(`article[data-node-id="${id}"]`)).toHaveAttribute('data-status', 'complete');
+});
+
+test('a frame type this page does not know is skipped, and the reply is saved', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	// A newer server can send a frame type an open tab has never seen, as Plan 3's ping was to Plan 2's tabs.
+	const frames = [
+		{ type: 'ping' },
+		{ type: 'text', text: 'Before the new frame, ' },
+		{ type: 'a_frame_from_a_newer_server' },
+		{ type: 'text', text: 'and after it.' },
+		{ type: 'done', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 2 } }
+	];
+	await page.route('**/api/chat', (route) =>
+		route.fulfill({ status: 200, contentType: 'text/event-stream', body: frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('') })
+	);
+	const id = await send(page, 'a reply from a newer server');
+	await expect(page.locator(`article[data-node-id="${id}"]`)).toContainText('Before the new frame, and after it.');
+	// Had the frame failed the card, the error it left would make the server refuse the node, and the reply would be lost.
+	await waitSaved(page, 'Before the new frame, and after it.');
 });
 
 test('branching sends exactly the ancestor path', async ({ page, signIn }) => {
@@ -160,4 +168,19 @@ test('a reply that did not finish says so in the composer instead of waiting for
 	await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
 	await page.getByRole('button', { name: 'New conversation' }).click();
 	await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
+});
+
+test('a reply that finished empty says so in the composer instead of waiting forever', async ({ page, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const id = await send(page, '[empty] say nothing');
+	await expect(page.locator(`article[data-node-id="${id}"]`)).toHaveAttribute('data-status', 'complete');
+	await expect(page.getByLabel('Message')).toHaveAttribute(
+		'placeholder',
+		"This reply didn't finish. Branch from another card, or start a new conversation."
+	);
+	// The card says the same: its Branch button is off, and its tooltip is the same sentence.
+	const branch = page.locator(`article[data-node-id="${id}"] button[aria-label="Branch"]`);
+	await expect(branch).toBeDisabled();
+	await expect(branch).toHaveAttribute('title', "This reply didn't finish. Branch from another card, or start a new conversation.");
 });
