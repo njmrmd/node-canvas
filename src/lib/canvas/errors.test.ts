@@ -5,11 +5,49 @@ import { COPY } from './copy';
 import { presentError, TIMEOUT_ERROR, toNodeError } from './errors';
 
 describe('presentError', () => {
-	it('maps a rejected or missing key to the auth line', () => {
-		for (const code of ['invalid_api_key', 'no_key_configured'] as const) {
-			const p = presentError({ code, message: 'x' });
-			assert.equal(p.kind, 'auth');
-			assert.equal(p.message, COPY['node.error.auth']);
+	it('maps a rejected key and a missing key to their own lines, each with the way to the key page', () => {
+		const rejected = presentError({ code: 'invalid_api_key', message: 'x' });
+		assert.equal(rejected.kind, 'auth');
+		assert.equal(rejected.message, COPY['node.error.auth']);
+		assert.deepEqual(rejected.action, { label: 'Open the key page', to: 'keys' });
+		const missing = presentError({ code: 'no_key_configured', message: 'x' });
+		assert.equal(missing.kind, 'auth');
+		assert.equal(missing.message, 'No model key is connected. Connect one on the key page.');
+		assert.deepEqual(missing.action, { label: 'Open the key page', to: 'keys' });
+	});
+
+	it('says a signed-out session is signed out, with the way back in', () => {
+		const p = presentError({ code: 'unauthenticated', message: 'Please sign in to continue.' });
+		assert.equal(p.kind, 'signed_out');
+		assert.equal(p.category, 'Signed out');
+		assert.equal(
+			p.message,
+			"You've been signed out. Sign in again in the new tab this opens, then come back here — this tab keeps your changes and saves them."
+		);
+		assert.deepEqual(p.action, { label: 'Sign in (new tab)', to: 'sign-in' });
+	});
+
+	it('says a model that is no longer offered is unavailable, and where to pick another', () => {
+		const p = presentError({ code: 'unsupported_model', message: 'x' });
+		assert.equal(p.kind, 'model');
+		assert.equal(p.message, "This model isn't available any more. Choose another in the top bar, then press Retry.");
+		assert.equal(p.action, null);
+	});
+
+	it('gives every other failure no action', () => {
+		// invalid_request with a message that is not about length, and not_found (a code no line is written for), fall to the generic line.
+		for (const code of [
+			'network',
+			'timeout',
+			'model_declined',
+			'rate_limited',
+			'provider_unavailable',
+			'internal_error',
+			'payload_too_large',
+			'invalid_request',
+			'not_found'
+		] as const) {
+			assert.equal(presentError({ code, message: 'x' }).action, null, code);
 		}
 	});
 

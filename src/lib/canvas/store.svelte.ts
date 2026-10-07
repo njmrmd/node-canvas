@@ -26,6 +26,7 @@ import {
 	restoreBranch,
 	setBodyCollapsed,
 	setCollapsed,
+	setNodeModel,
 	settleOrphanedStreams,
 	startStreaming,
 	toMessages,
@@ -103,7 +104,10 @@ export class CanvasStore {
 	layoutVersion = $state(0);
 	queueVersion = $state(0);
 	model = $state('');
-	rateLimit = $state<RateLimitSnapshot | null>(null);
+	// Raw: a snapshot is only ever replaced whole, never changed in place, so a deep proxy buys nothing.
+	rateLimit = $state.raw<RateLimitSnapshot | null>(null);
+	/** When the hourly window resets, in epoch milliseconds — the limit banner counts down to it. */
+	rateLimitResetAt = $state<number | null>(null);
 	saveError = $state<string | null>(null);
 	online = $state(true);
 	undo = $state.raw<UndoState | null>(null);
@@ -192,18 +196,19 @@ export class CanvasStore {
 			void this.saver.flush();
 		};
 		const offline = () => (this.online = false);
-		const hidden = () => {
+		const visibility = () => {
 			if (document.visibilityState === 'hidden') void this.saver.flush({ keepalive: true });
+			else this.checkLimit();
 		};
 		const pagehide = () => void this.saver.flush({ keepalive: true });
 		addEventListener('online', online);
 		addEventListener('offline', offline);
-		document.addEventListener('visibilitychange', hidden);
+		document.addEventListener('visibilitychange', visibility);
 		addEventListener('pagehide', pagehide);
 		this.cleanups.push(
 			() => removeEventListener('online', online),
 			() => removeEventListener('offline', offline),
-			() => document.removeEventListener('visibilitychange', hidden),
+			() => document.removeEventListener('visibilitychange', visibility),
 			() => removeEventListener('pagehide', pagehide)
 		);
 		this.saver.start();
@@ -399,7 +404,10 @@ export class CanvasStore {
 			this.commit(failNode(this.graph, id, { code: 'invalid_request', message: tooLong.message }));
 			return;
 		}
-		this.commit(startStreaming(this.graph, id));
+		// A card stores the model it was sent with, and the card's own failure says that model is gone: send it with
+		// the one chosen now, or Retry would ask for the same model again.
+		const gone = this.graph.nodesById[id].error?.code === 'unsupported_model';
+		this.commit(startStreaming(gone ? setNodeModel(this.graph, id, this.model) : this.graph, id));
 		this.following = id;
 		this.enqueue(id);
 	}
@@ -459,14 +467,25 @@ export class CanvasStore {
 
 	private noteRateLimit(snapshot: RateLimitSnapshot): void {
 		this.rateLimit = snapshot;
+		this.rateLimitResetAt = Date.now() + snapshot.resetSeconds * 1000;
 		if (this.rateLimitReset !== null) clearTimeout(this.rateLimitReset);
 		this.rateLimitReset = null;
 		if (snapshot.remaining === 0) {
-			this.rateLimitReset = setTimeout(() => {
-				this.rateLimitReset = null;
-				if (this.rateLimit === snapshot) this.rateLimit = { ...snapshot, remaining: snapshot.limit };
-			}, snapshot.resetSeconds * 1000);
+			// Every call clears the previous timer, so a timer that fires belongs to the current snapshot.
+			this.rateLimitReset = setTimeout(() => this.endLimit(), snapshot.resetSeconds * 1000);
 		}
+	}
+
+	/** Ends the limit if its window is already over — after a sleep, or when timers were throttled in a background tab. */
+	checkLimit(now = Date.now()): void {
+		if (this.limitReached && this.rateLimitResetAt !== null && now >= this.rateLimitResetAt) this.endLimit();
+	}
+
+	/** The hourly window is over: the budget is back, and the banner and the block go. */
+	private endLimit(): void {
+		if (this.rateLimitReset !== null) clearTimeout(this.rateLimitReset);
+		this.rateLimitReset = null;
+		if (this.rateLimit && this.rateLimit.remaining === 0) this.rateLimit = { ...this.rateLimit, remaining: this.rateLimit.limit };
 	}
 
 	private apply(id: string, event: ChatStreamEvent): void {

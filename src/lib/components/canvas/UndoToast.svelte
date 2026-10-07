@@ -37,7 +37,7 @@
 		border: 1px solid var(--cy-paper-edge);
 		background: var(--cy-paper-deep);
 		color: var(--cy-ink);
-		box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+		box-shadow: var(--shadow-2);
 		font: var(--text-sm);
 	}
 	button {

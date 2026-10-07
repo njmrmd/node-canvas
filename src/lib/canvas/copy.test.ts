@@ -67,7 +67,9 @@ test("rejects malformed calls at compile time", () => {
 /**
  * §9's table, re-listed from the spec rather than derived from the module, so
  * that dropping or renaming a key fails here instead of silently shrinking the
- * inventory the spec says is complete.
+ * inventory the spec says is complete. Two of the spec's keys are missing from
+ * this list on purpose: Plan 4 dropped `coach.branch` and `node.status.thinkingLong`
+ * because nothing renders them, and "drops the keys nothing renders" below asserts they are gone.
  */
 const SPEC_9_KEYS: readonly CopyKey[] = [
   "empty.headline",
@@ -75,9 +77,7 @@ const SPEC_9_KEYS: readonly CopyKey[] = [
   "composer.placeholder",
   "composer.placeholder.reply",
   "composer.target",
-  "coach.branch",
   "node.status.thinking",
-  "node.status.thinkingLong",
   "node.status.queued",
   "node.status.stopped",
   "node.action.continue",
@@ -138,4 +138,22 @@ test("leaves no unrendered braces once every slot is supplied", () => {
 test("renders the collapse counts", () => {
   assert.equal(copy("node.hiddenCount", { n: 3 }), "3 hidden");
   assert.equal(copy("node.action.expand", { n: 3 }), "Expand (3)");
+});
+
+test("drops the keys nothing renders", () => {
+  for (const key of [
+    "coach.branch",
+    "node.status.thinkingLong",
+    "node.action.remove",
+    "node.action.openSettings",
+    "node.action.branchFromEarlier",
+    "node.error.content_filter",
+  ]) {
+    assert.ok(!(key in COPY), `${key} is still in the table`);
+  }
+});
+
+test("says sending comes back with the connection, and what a reply with no text is", () => {
+  assert.equal(copy("offline.banner"), "You're offline. Your canvas is still here, and you can send again once you're back online.");
+  assert.equal(copy("branch.failed"), "This reply has no text to build on. Branch from another card, or start a new conversation.");
 });

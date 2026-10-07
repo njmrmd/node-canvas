@@ -33,7 +33,7 @@ removed rather than carried over.
 |---|---|---|
 | Framework | SvelteKit 2 + Svelte 5 (runes) | The React version's main bug classes (stale closures, ref mirrors, listener churn from effect dependencies) do not exist in runes. Owner preference. |
 | Canvas | `@xyflow/svelte` 1.x | Spike: all 9 checks pass; replaces ~3,300 lines of hand-rolled canvas with ~500. |
-| Devices | Desktop only | Below ~900 px wide, show a "built for desktop" notice. No touch gestures, no mobile layouts. |
+| Devices | Desktop only | Below ~900 px wide, show a "built for desktop" notice; the landing page is the exception (§8). No touch gestures, no mobile layouts. |
 | Repository | New repo `node-canvas`, new Vercel project | Clean start; the current repo is archived at cutover. |
 | Data | Fresh Neon database, fresh schema | No real users to migrate; frees the per-node schema. |
 | Saving | Per-node upsert of changed nodes (approach A) | Removes the 4 MB ceiling for good; `/api/chat` stays a stateless relay. |
@@ -232,7 +232,7 @@ Carried over, not simplified. Each item has a unit or database test.
 | `/keys` | Key manager, sign out, delete account |
 | `/canvas` | The canvas app (client-rendered) |
 
-A root layout renders `DesktopOnlyNotice` instead of the page below ~900 px width.
+A root layout renders `DesktopOnlyNotice` instead of the page below 900 px width — except on `/`, which stays readable with a compact note above it (Plan 4: the landing page is the page a stranger opens from a shared link, often on a phone).
 
 ### Canvas state — three modules
 
@@ -276,9 +276,9 @@ diagnostic logging), `canvas-tokens.css`, and their `*.test.ts` files.
 
 - **CI** — one workflow on pull requests and pushes to `main`: `svelte-check`, lint, unit, database, build, browser. All required.
 - **Vercel** — Git integration; preview per PR; production from `main`; repo auto-merge on.
-- **Neon** — via the Vercel integration. Preview and Production use separate `KEY_VAULT_ENCRYPTION_KEY` values. Per-preview database branches: off initially.
+- **Neon** — via the Vercel integration. Preview and Production use separate `KEY_VAULT_ENCRYPTION_KEY` values. Per-preview database branches: on (see §12).
 - **Environment** — `DATABASE_URL`, `DATABASE_URL_UNPOOLED` (migrations), `KEY_VAULT_ENCRYPTION_KEY`, optional `APP_ORIGIN`.
-- **Cutover** — once §1's criteria pass on `node-canvas-theta.vercel.app`: move any custom domain to the new project, archive `njmrmd/node-canvas-chat`. No data migration (fresh database).
+- **Cutover** — once §1's criteria pass on `node-canvas-theta.vercel.app`: move any custom domain to the new project, archive `njmrmd/node-canvas-chat`. No data migration (fresh database). The steps are in `docs/cutover.md`; as of 2026-10-07 there is no custom domain to move.
 
 ## 11. Risks
 
@@ -292,5 +292,5 @@ diagnostic logging), `canvas-tokens.css`, and their `*.test.ts` files.
 
 ## 12. Open items
 
-None blocking. Decided defaults the plan may revisit: the 900 px desktop
-threshold; 1.5 s save interval; per-preview Neon branches off.
+None blocking. Decided: the 900 px desktop threshold; the 1.5 s save interval;
+per-preview Neon branches on (since Plan 2).

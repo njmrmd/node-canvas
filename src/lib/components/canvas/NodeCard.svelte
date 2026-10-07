@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { Handle, NodeResizeControl, Position, type NodeProps } from '@xyflow/svelte';
 	import { copy } from '$lib/canvas/copy';
 	import { presentError } from '$lib/canvas/errors';
@@ -37,6 +38,8 @@
 	const children = $derived(store.childCount(id));
 	const hiddenCount = $derived(node?.collapsed ? store.hiddenBelow(id) : 0);
 	const oneLine = $derived(node?.bodyCollapsed ? summaryLine(node) : '');
+	/** A failed card stays at full strength: its error line must stay readable (AA) wherever it is. */
+	const dimmedHere = $derived(store.dimmed(id) && node?.status !== 'error');
 	/** Whether this resize changed the card's size: a click on the corner without a drag does not, and must not pin it. */
 	let resizeChanged = false;
 
@@ -76,7 +79,7 @@
 		class="card"
 		class:target={isTarget}
 		class:sized
-		class:dim={store.dimmed(id)}
+		class:dim={dimmedHere}
 		data-node-id={id}
 		data-parent-id={node.parentId ?? ''}
 		data-status={node.status}
@@ -153,7 +156,22 @@
 				{:else if node.status === 'streaming'}
 					<span class="pending">…</span>
 				{/if}
-				{#if failure}<p class="error" role="status">{failure.message}</p>{/if}
+				{#if failure}
+					<p class="error" role="status">
+						{failure.message}
+						{#if failure.action?.to === 'keys'}
+							<a class="nodrag action-link" href={resolve('/keys')}>{failure.action.label}</a>
+						{:else if failure.action?.to === 'sign-in'}
+							<!-- A new tab, so this one keeps its unsaved changes and saves them once the session is back. `next=/` lands on the welcome page, not a second canvas. -->
+							<a
+								class="nodrag action-link"
+								href={resolve(`/sign-in?next=${encodeURIComponent('/')}`)}
+								target="_blank"
+								rel="noopener noreferrer">{failure.action.label}</a
+							>
+						{/if}
+					</p>
+				{/if}
 			</div>
 		{/if}
 		{#if retryable || continuable || regenerable}
@@ -222,12 +240,12 @@
 		color: var(--cy-ink);
 		border: 1px solid var(--cy-paper-edge);
 		border-radius: var(--radius-md);
-		box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+		box-shadow: var(--shadow-1);
 		font: var(--text-sm);
 		transition: opacity var(--dur-base) var(--ease-out);
 	}
 	.card.dim:not(:hover):not(:focus-within) {
-		opacity: 0.45;
+		opacity: 0.75; /* 0.75 keeps body and soft text at WCAG AA (4.5:1); the faded edges and the gold path carry the focus. */
 	}
 	.card.sized {
 		overflow: hidden;
@@ -267,7 +285,7 @@
 	}
 	button {
 		font: var(--text-xs);
-		min-height: 28px;
+		min-height: var(--control-height-sm);
 		padding: 0 var(--space-3);
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--cy-paper-edge);
@@ -319,6 +337,11 @@
 	.error {
 		margin: var(--space-2) 0 0;
 		color: var(--danger);
+	}
+	.action-link {
+		margin-left: var(--space-1);
+		color: inherit;
+		text-decoration: underline;
 	}
 	.actions {
 		display: flex;

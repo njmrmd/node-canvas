@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+	<!--
+		The landing drawing's fork: one node above, two lines leaving it, two nodes below. A filled square, so it
+		reads on a light or a dark tab strip. Nothing is finer than 2.5 units, so it holds at 16 px.
+		An icon cannot read the page's custom properties, so the colours are literals. Keep them in step with:
+		  square #18181b: the foreground token, src/lib/styles/tokens.css (the page's darkest colour; it has no gold)
+		  mark   #daae46: the cy-gold token, src/lib/styles/canvas-tokens.css (8.54:1 on the square)
+		(An XML comment cannot hold two hyphens in a row, so the tokens are named without their leading dashes.)
+	-->
+	<rect width="32" height="32" rx="7" fill="#18181b" />
+	<g fill="#daae46">
+		<rect x="10" y="4" width="12" height="7" rx="2" />
+		<rect x="4" y="21" width="10" height="7" rx="2" />
+		<rect x="18" y="21" width="10" height="7" rx="2" />
+	</g>
+	<g fill="none" stroke="#daae46" stroke-width="2.5" stroke-linecap="round">
+		<path d="M16 11 C16 16 9 16 9 21" />
+		<path d="M16 11 C16 16 23 16 23 21" />
+	</g>
+</svg>

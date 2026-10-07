@@ -1,4 +1,4 @@
-<!-- Fetches the canvas page by page, then hands the nodes to the app. §4.11: past 5 s, say so. -->
+<!-- Fetches the canvas page by page, then hands the nodes to the app. Past 5 s it says so; failed or slow, Retry starts over. -->
 <script lang="ts">
 	import { SvelteFlowProvider } from '@xyflow/svelte';
 	import { onMount } from 'svelte';
@@ -18,16 +18,28 @@
 	let failed = $state(false);
 	let slow = $state(false);
 
+	/** The load in flight. Retry aborts it, so a late answer from a stuck request cannot land after a fresh one. */
+	let controller: AbortController | null = null;
+
 	async function load() {
+		controller?.abort();
+		const mine = new AbortController();
+		controller = mine;
 		failed = false;
 		slow = false;
-		const timer = setTimeout(() => (slow = true), SLOW_MS);
+		const timer = setTimeout(() => {
+			if (controller === mine) slow = true;
+		}, SLOW_MS);
 		try {
-			nodes = await loadAllNodes((after) =>
-				apiFetch<NodesPage>(after === null ? '/api/nodes' : `/api/nodes?after=${encodeURIComponent(after)}`)
+			const loaded = await loadAllNodes((after) =>
+				apiFetch<NodesPage>(after === null ? '/api/nodes' : `/api/nodes?after=${encodeURIComponent(after)}`, {
+					signal: mine.signal
+				})
 			);
+			if (controller === mine) nodes = loaded;
 		} catch {
-			failed = true;
+			// An abort by Retry is not a failure: the fresh load owns the state now.
+			if (controller === mine) failed = true;
 		} finally {
 			clearTimeout(timer);
 		}
@@ -35,6 +47,7 @@
 
 	onMount(() => {
 		void load();
+		return () => controller?.abort();
 	});
 </script>
 
@@ -42,8 +55,8 @@
 	<SvelteFlowProvider><CanvasApp {data} {nodes} /></SvelteFlowProvider>
 {:else}
 	<div class="loading canvas-surface" role="status">
-		{#if failed || slow}<p>{copy('canvas.loadError')}</p>{/if}
-		{#if failed}<button type="button" onclick={() => void load()}>{copy('canvas.loadRetry')}</button>{/if}
+		{#if failed}<p>{copy('canvas.loadFailed')}</p>{:else if slow}<p>{copy('canvas.loadError')}</p>{/if}
+		{#if failed || slow}<button type="button" onclick={() => void load()}>{copy('canvas.loadRetry')}</button>{/if}
 	</div>
 {/if}
 

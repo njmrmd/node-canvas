@@ -1,17 +1,11 @@
 /**
  * Caps on what one chat request may carry.
  *
- * These live here rather than inside the route because both sides need them:
- * the server rejects an over-long branch, and the canvas wants to catch the
- * same thing before spending a round trip on it. Two copies that must agree is
- * a bug waiting for the day someone edits one of them — Frontend Engineer
- * flagged exactly that after re-declaring these in `conversation/graph.ts`.
+ * Both sides need them: the server refuses an over-long branch (`src/lib/server/chat.ts`), and the canvas
+ * catches the same thing before spending a round trip on it. One copy, so the two can never disagree. The
+ * server is still the authority: a client that skips these checks is simply refused.
  *
- * The server is still the authority. Nothing here is a substitute for the
- * checks in `api/chat/route.ts`; a client that skips them is simply refused.
- *
- * No imports: this is shared between an edge-safe client module and a Node
- * route handler, so it must stay free of anything runtime-specific.
+ * No imports: this module is shared by the browser bundle and the server.
  */
 
 /** Messages in a single branch. */

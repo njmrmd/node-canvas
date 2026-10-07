@@ -1,8 +1,11 @@
-# Plan 2 and Plan 3 follow-ups
+# Plan 2, Plan 3 and Plan 4 follow-ups
 
-Open review findings from Plan 2's and Plan 3's reviews (per task, final, and re-reviews). Plan 2's
+Open review findings from the reviews of Plans 2, 3 and 4 (per task, final, and re-reviews). Plan 2's
 were brought up to date after Plan 3 and stay under "Still open"; Plan 3's own are under "Plan 3
-review findings (open)", apart from two saver points folded into Plan 2's Saver lines.
+review findings (open)", apart from two saver points folded into Plan 2's Saver lines. Plan 4
+resolved the items marked "before cutover", except the resize corner, which stays under Canvas; the rest
+are under "Resolved in Plan 4". What Plan 4's own final review left open is under "Plan 4 review
+findings (open)".
 
 ## Resolved in Plan 3
 
@@ -20,15 +23,35 @@ review findings (open)", apart from two saver points folded into Plan 2's Saver 
   load refuses a signed-out reader; a pre-stream `ApiCallError` ends as `data-status="error"`
   (the hourly-limit test in `banners.spec.ts`, and `stream.test.ts`).
 
+## Resolved in Plan 4
+
+- **Copy.**
+  - The offline banner says sending comes back with the connection.
+  - The limit banner counts down, and ends on its own, even after a laptop sleeps past the reset. Before
+    Plan 4 it never ended without a reload (the code dates from Plan 2's canvas), a bug Plan 4's review
+    found.
+  - The never-built "Open settings" is gone, with the other strings nothing rendered; an auth failure links
+    to the key page.
+  - A signed-out send says so. Its Sign in link opens sign-in in a new tab; the original tab keeps its
+    changes and saves them once you are signed in.
+  - A missing key gets its own line. So does an unavailable model: a card that failed this way says so, and
+    Retry re-sends it with the model now chosen in the top bar.
+  - A card with no text says that, not "didn't finish".
+  - The desktop notice no longer promises a saved canvas to people with none.
+  - A failed canvas load says it failed and offers Retry; a stalled one offers Retry too.
+  - Stale comments in `copy.ts` and `chat-limits.ts` are rewritten.
+- **Design.**
+  - Dimmed cards stay at WCAG AA (opacity 0.75), and a failed card is never dimmed, so its error stays
+    readable.
+  - The composer's note no longer moves the field.
+  - Shadows, weights and control heights in the canvas components come from tokens. The style test
+    (`src/lib/styles/canvas-styles.test.ts`) keeps raw colours, literal font weights and pixel
+    `min-height`s out of them.
+- **Front door.**
+  - A landing page, readable on phones.
+  - A link card (`static/og.png`, rendered by `pnpm og:image`).
+
 ## Still open
-
-### Before cutover (Plan 4)
-
-- Copy: the offline banner says "new messages will fail" but sending is blocked; the limit
-  banner's reset time does not count down; `node.action.openSettings` still says "Open settings";
-  `unauthenticated` and `unsupported_model` show the generic error line, with no sign-in hint;
-  stale comments in `chat-limits.ts` and `copy.ts` (00:00 UTC).
-- Styles: some literals (sizes, shadow, weight) should use tokens.
 
 ### Saver
 
@@ -52,18 +75,6 @@ review findings (open)", apart from two saver points folded into Plan 2's Saver 
 - `nodes.ts`: any 23503 is reported as "parent not on this canvas".
 
 ## Plan 3 review findings (open)
-
-### Before cutover (Plan 4), design and copy
-
-- Dimmed cards at opacity 0.45 put ink text at 3.25:1 and soft text at 2.61:1. 0.6 brings ink to
-  4.66:1 but soft text only to 3.57:1; or dim only the chrome.
-- The composer's blocked note pushes the field up 24 px on the first keystroke.
-- The desktop notice says "Your canvas is saved and waiting there" to people with no canvas.
-- "This reply didn't finish" now also covers a reply that finished empty.
-- The loader shows "Taking longer than expected." with no Retry on a stalled request. A failed load
-  says the same, with Retry.
-- The resize corner on a card under 120 px tall first shrinks the card. This is the 1.7.0 clamp; the
-  saved size ends valid.
 
 ### Canvas
 
@@ -91,6 +102,8 @@ review findings (open)", apart from two saver points folded into Plan 2's Saver 
 - Nested lists skew ordered numbering in the markdown parser.
 - Cmd+Opt+←/→ is reserved by Chrome and Firefox on macOS (tab switching), so check width resize on
   real hardware. Ctrl+Opt works.
+- The resize corner on a card under 120 px tall first shrinks the card. This is the 1.7.0 clamp; the
+  saved size ends valid.
 
 ### Accessibility
 
@@ -108,16 +121,16 @@ review findings (open)", apart from two saver points folded into Plan 2's Saver 
   `invalid_request`.
 - `withRoute` logs a client that disconnects mid-upload (ECONNRESET) as an unhandled error.
 - The paged load has no `(user_id, created_at, id)` index (a later migration).
-- Deploys: a tab still running the previous bundle meets the new server's frames. Plan 2's bundle
-  turns any frame type it does not know into a failed card whose every save the server refuses, so
-  the reply is lost on reload; Plan 3's `ping` needs Vercel Skew Protection or a reload of open tabs
-  at deploy. Plan 3's bundle ignores unknown frame types; a changed frame
-  or API shape still needs Skew Protection or a backward-compatible change.
+- Deploys: Plan 3 shipped on 2026-10-07. A tab still running the previous bundle meets the new server's
+  frames. Plan 2's bundle turns any frame type it does not know into a failed card whose every save the
+  server refuses, so the reply is lost on reload; Plan 3's `ping` was the frame that needed Vercel Skew
+  Protection or a reload of open tabs at deploy. Plan 3's bundle ignores unknown frame types; a changed
+  frame or API shape still needs Skew Protection or a backward-compatible change (`docs/cutover.md` §1
+  checks it is on).
 
 ### Tests worth adding
 
 - `__data.json` carries no node text.
-- The loader's slow, failed and Retry states.
 - A db test for the `(created_at, id)` tie-break.
 - `rectInView` and `focusOn` single-edge pins.
 - A queued card in a removed branch.
@@ -130,3 +143,36 @@ review findings (open)", apart from two saver points folded into Plan 2's Saver 
   a breach of §1.4's "only the streaming cards touch the DOM".
 - `savedNodesText`'s 3 × 2 s budget exceeds `expect.poll`'s 5 s.
 - The e2e teardown stops Postgres before the preview exits (the 57P01 noise).
+
+## Plan 4 review findings (open)
+
+### Copy and accessibility
+
+- A session that ends while you edit, without sending, shows only the generic save banner. A reload then
+  loses the unsaved moves, sizes, collapses and deletes. Give the saver's `onError` the code, and on
+  `unauthenticated` show a signed-out banner with the new-tab Sign in link; add an e2e. This predates
+  Plan 4, and it is the most important item here.
+- The status labels in `errors.ts` sit outside `copy.ts` and its tone test. Move them to `node.category.*`.
+- After the new-tab sign-in, "Welcome back" offers "Open the canvas", which opens a second canvas tab. A
+  page that says "go back to your canvas tab" would be better.
+- The landing page's external links have no "opens in a new tab" cue. `list-style: none` drops the list
+  role in Safari (add `role="list"`). The literal "." after the note title sits outside copy.
+- The loader's Retry removes itself, so keyboard focus drops to the page body and the status region
+  empties while it runs.
+
+### Canvas
+
+- The signed-out line stays on the card after recovery and after a reload. It never says "then press
+  Retry". Collapsed, it is truncated with no link.
+
+### Tests and tooling
+
+- `scripts/og-image.ts` copies four token colours as hex. Read them from `tokens.css`.
+- `pnpm og:image` renders with the host's system fonts. Regenerate on macOS to match the committed PNG.
+- The unfurl e2e reads the hydrated page. Add a `request.get('/')` assertion on the server HTML.
+- Crawlers cache `og.png` per URL. Rename the file when the picture changes.
+- The model e2e hard-codes `claude-opus-5-5`; import `DEFAULT_MODEL_ID`. No test pins that other failures
+  keep their model on Retry.
+- There is no automated check that the dimmed opacity keeps soft text at AA (≥ 0.73).
+- The style guard reads only the innermost braces, so CSS nesting slips through. It also has no `28px`
+  backstop and does not check named colours.

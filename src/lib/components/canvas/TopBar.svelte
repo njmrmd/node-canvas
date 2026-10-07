@@ -44,7 +44,7 @@
 		font: var(--text-sm);
 	}
 	.wordmark {
-		font-weight: 600;
+		font-weight: var(--weight-strong);
 		color: inherit;
 		text-decoration: none;
 	}

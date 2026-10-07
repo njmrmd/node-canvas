@@ -65,12 +65,18 @@
 		></textarea>
 		<button type="submit" disabled={!text.trim() || !!blocked || tooLong}>Send</button>
 	</div>
-	{#if tooLong}<p class="note" role="status">{copy('composer.tooLong')}</p>{/if}
-	{#if showBlocked}<p class="note" id="composer-blocked" role="status">{blocked}</p>{/if}
+	{#if tooLong || showBlocked}
+		<!-- Above the composer, over the canvas's bottom edge: a note never moves the field under the caret. -->
+		<div class="notes">
+			{#if tooLong}<p class="note" role="status">{copy('composer.tooLong')}</p>{/if}
+			{#if showBlocked}<p class="note" id="composer-blocked" role="status">{blocked}</p>{/if}
+		</div>
+	{/if}
 </form>
 
 <style>
 	.composer {
+		position: relative;
 		padding: var(--space-3) var(--space-6) var(--space-4);
 		border-top: 1px solid var(--cy-paper-edge);
 		background: var(--cy-paper-deep);
@@ -105,15 +111,34 @@
 		border: 0;
 		background: var(--cy-gold);
 		color: var(--cy-paper-deep);
-		font-weight: 600;
+		font-weight: var(--weight-strong);
 		cursor: pointer;
 	}
 	button[type='submit']:disabled {
 		opacity: 0.45;
 		cursor: default;
 	}
+	.notes {
+		position: absolute;
+		/* Past Svelte Flow's zoom controls, which sit in the canvas's bottom-left corner. */
+		left: var(--space-10);
+		bottom: calc(100% + var(--space-2));
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: var(--space-1);
+		max-width: 860px;
+		/* Over the linear view, which fills the stage's right side (at --z-popover) and, on a narrow window, reaches
+		   the notes. The composer follows the stage in the DOM, so this paints over the panel's bottom-left corner. */
+		z-index: var(--z-popover);
+		pointer-events: none;
+	}
 	.note {
-		margin: var(--space-2) 0 0;
+		margin: 0;
+		padding: var(--space-1) var(--space-3);
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--cy-paper-edge);
+		background: var(--cy-paper-deep);
 		font: var(--text-xs);
 		color: var(--cy-ink-soft);
 	}

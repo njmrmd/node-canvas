@@ -90,11 +90,11 @@
 		flex: 1;
 		margin: 0;
 		font: var(--text-base);
-		font-weight: 600;
+		font-weight: var(--weight-strong);
 	}
 	button {
 		font: var(--text-xs);
-		min-height: 28px;
+		min-height: var(--control-height-sm);
 		padding: 0 var(--space-3);
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--cy-paper-edge);

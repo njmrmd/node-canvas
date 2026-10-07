@@ -466,6 +466,16 @@ export function resetAllToAuto(graph: ConversationGraph, now?: number): Conversa
   return next;
 }
 
+/** Pins a node to another model, for the next time it is sent: a retry reuses the node's model, not the picker's. */
+export function setNodeModel(
+  graph: ConversationGraph,
+  nodeId: string,
+  model: string,
+  now?: number,
+): ConversationGraph {
+  return patchNode(graph, nodeId, { model }, now);
+}
+
 export function setPrompt(
   graph: ConversationGraph,
   nodeId: string,

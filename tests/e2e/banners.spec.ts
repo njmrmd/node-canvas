@@ -1,4 +1,18 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
+import { send } from './helpers';
+
+/**
+ * The hourly block is gone. The card whose send was refused has no text to reply to, so the composer still
+ * points at nothing it can use: start a new conversation, and it should be open and able to send.
+ */
+async function expectComposerOpen(page: Page) {
+	await expect(page.getByLabel('Message')).not.toHaveAttribute('placeholder', 'Hourly limit reached');
+	await page.locator('.composer').getByRole('button', { name: 'New conversation' }).click();
+	await expect(page.getByLabel('Message')).toHaveAttribute('placeholder', 'Ask anything…');
+	await page.getByLabel('Message').fill('again');
+	await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
+}
 
 test('offline shows the banner and blocks sending; online clears it', async ({ page, context, signIn }) => {
 	await signIn();
@@ -6,7 +20,7 @@ test('offline shows the banner and blocks sending; online clears it', async ({ p
 	// The canvas hydrates after `load`; going offline first would fail its lazy-loaded chunks.
 	await expect(page.getByLabel('Message')).toBeVisible();
 	await context.setOffline(true);
-	await expect(page.getByText("You're offline. Your canvas is here, but new messages will fail.")).toBeVisible();
+	await expect(page.getByText("You're offline. Your canvas is still here, and you can send again once you're back online.")).toBeVisible();
 	await page.getByLabel('Message').fill('hello');
 	await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
 	await expect(page.locator('.composer .note')).toHaveText('Offline');
@@ -71,4 +85,63 @@ test('a starter prompt fills the composer', async ({ page, signIn }) => {
 	await page.getByRole('button', { name: 'Name this product three different ways' }).click();
 	await expect(page.getByLabel('Message')).toHaveValue('Name this product three different ways');
 	await expect(page.locator('article[data-node-id]')).toHaveCount(0);
+});
+
+test('a blocked composer explains itself without moving the field', async ({ page, context, signIn }) => {
+	await signIn();
+	await page.goto('/canvas');
+	const field = page.getByLabel('Message');
+	await expect(field).toBeVisible();
+	await context.setOffline(true);
+	await expect(field).toHaveAttribute('placeholder', 'Offline');
+	const before = (await field.boundingBox())!;
+	await field.pressSequentially('h');
+	await expect(page.locator('.composer .note')).toHaveText('Offline');
+	const after = (await field.boundingBox())!;
+	expect([after.y, after.height]).toEqual([before.y, before.height]);
+	await context.setOffline(false);
+});
+
+test('the limit banner counts down while the tab stays open', async ({ page, signIn }) => {
+	await page.clock.install();
+	await signIn();
+	await page.route('**/api/chat', (route) =>
+		route.fulfill({
+			status: 429,
+			contentType: 'application/json',
+			headers: { 'RateLimit-Limit': '60', 'RateLimit-Remaining': '0', 'RateLimit-Reset': '1800' },
+			body: JSON.stringify({ error: { code: 'rate_limited', message: 'You have reached the limit of 60 messages this hour.' } })
+		})
+	);
+	await page.goto('/canvas');
+	await send(page, 'one too many', { wait: false });
+	await expect(page.getByText("You've used your 60 messages for this hour. Resets in 30 minutes.")).toBeVisible();
+	await page.clock.fastForward('10:00');
+	await expect(page.getByText("You've used your 60 messages for this hour. Resets in 20 minutes.")).toBeVisible();
+	// The window ends: the banner goes, the composer is open again, and Send works.
+	await page.clock.fastForward('20:00');
+	await expect(page.getByText(/You've used your 60 messages for this hour/)).toHaveCount(0);
+	await expectComposerOpen(page);
+});
+
+test('a laptop that slept past the reset can send again when it wakes', async ({ page, signIn }) => {
+	await page.clock.install();
+	await signIn();
+	await page.route('**/api/chat', (route) =>
+		route.fulfill({
+			status: 429,
+			contentType: 'application/json',
+			headers: { 'RateLimit-Limit': '60', 'RateLimit-Remaining': '0', 'RateLimit-Reset': '600' },
+			body: JSON.stringify({ error: { code: 'rate_limited', message: 'You have reached the limit of 60 messages this hour.' } })
+		})
+	);
+	await page.goto('/canvas');
+	await send(page, 'one too many', { wait: false });
+	await expect(page.getByText("You've used your 60 messages for this hour. Resets in 10 minutes.")).toBeVisible();
+	// Sleep: the wall clock jumps two hours, and no timer fires on the way.
+	await page.clock.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+	// Waking up: the next 15 s tick runs.
+	await page.clock.runFor(16_000);
+	await expect(page.getByText(/You've used your 60 messages for this hour/)).toHaveCount(0);
+	await expectComposerOpen(page);
 });

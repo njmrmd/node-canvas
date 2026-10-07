@@ -18,6 +18,7 @@ import {
   pathToRoot,
   removeBranch,
   rootIds,
+  setNodeModel,
   settleOrphanedStreams,
   startStreaming,
   toMessages,
@@ -229,6 +230,18 @@ describe("conversation graph", () => {
 
       assert.equal(graph.nodesById.a.status, "interrupted");
       assert.equal(graph.nodesById.a.response, "half");
+    });
+
+    it("re-pins a node to another model without touching its text or error", () => {
+      let graph = addNode(createGraph(), { id: "a", prompt: "hi", position: ORIGIN, model: "old-model" }).graph;
+      graph = failNode(graph, "a", { code: "unsupported_model", message: "x" });
+      const pinned = setNodeModel(graph, "a", "new-model", 5);
+
+      assert.equal(pinned.nodesById.a.model, "new-model");
+      assert.equal(pinned.nodesById.a.updatedAt, 5);
+      assert.equal(pinned.nodesById.a.status, "error");
+      assert.equal(pinned.nodesById.a.prompt, "hi");
+      assert.equal(graph.nodesById.a.model, "old-model", "the original graph was mutated");
     });
 
     it("settles nodes left streaming by a reload", () => {
